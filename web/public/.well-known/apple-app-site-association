@@ -1,0 +1,22 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appIDs": [
+          "KKQQQNKMM6.com.zizicici.watermelon"
+        ],
+        "components": [
+          {
+            "/": "/pair",
+            "comment": "Opens a Watermelon Link pairing URL in Watermelon Backup"
+          },
+          {
+            "/": "/*/pair",
+            "comment": "Opens a localized Watermelon Link pairing URL in Watermelon Backup"
+          }
+        ]
+      }
+    ]
+  }
+}

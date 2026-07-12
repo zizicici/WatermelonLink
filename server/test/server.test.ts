@@ -103,11 +103,12 @@ test("ticket creation allocates no room and two peers can relay opaque signaling
 
 test("only fingerprinted bundles receive immutable caching", async (context) => {
   const root = await mkdtemp(join(tmpdir(), "watermelon-link-"));
-  await mkdir(join(root, "assets"));
+  await Promise.all([mkdir(join(root, "assets")), mkdir(join(root, ".well-known"))]);
   await Promise.all([
     writeFile(join(root, "index.html"), "<!doctype html>"),
     writeFile(join(root, "assets", "index-review.js"), "export {};"),
-    writeFile(join(root, "assets", "app-icon.png"), "image")
+    writeFile(join(root, "assets", "app-icon.png"), "image"),
+    writeFile(join(root, ".well-known", "apple-app-site-association"), "{}")
   ]);
   const config = testConfig();
   config.staticRoot = root;
@@ -123,7 +124,9 @@ test("only fingerprinted bundles receive immutable caching", async (context) => 
   const html = await fetch(origin);
   const bundle = await fetch(`${origin}/assets/index-review.js`);
   const icon = await fetch(`${origin}/assets/app-icon.png`);
+  const association = await fetch(`${origin}/.well-known/apple-app-site-association`);
   assert.equal(html.headers.get("cache-control"), "no-cache");
   assert.equal(bundle.headers.get("cache-control"), "public, max-age=31536000, immutable");
   assert.equal(icon.headers.get("cache-control"), "public, max-age=3600");
+  assert.equal(association.headers.get("content-type"), "application/json; charset=utf-8");
 });

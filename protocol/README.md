@@ -7,11 +7,12 @@ The current milestone covers browser-node creation and signaling only. It does n
 1. The browser chooses a directory with the File System Access API.
 2. It creates a random 32-byte pairing secret and sends only its SHA-256 commitment to `POST /api/v1/tickets` after Turnstile succeeds.
 3. The server returns a compact, signed, three-minute binary ticket. Creating a ticket does not allocate a room.
-4. The QR code contains `/pair#t=<ticket>&s=<secret>`. The URL fragment is not sent in HTTP requests.
-5. Browser and phone connect to `/ws/v1` with the same ticket and distinct roles.
-6. Offer, answer, and ICE candidates are encrypted with AES-256-GCM. The key is derived from the QR secret with HKDF-SHA-256 and the session ID.
-7. WebRTC uses an empty ICE server list. There is no STUN or TURN service in v1.
-8. The browser authenticates the DataChannel with an HMAC challenge. Once it succeeds, both peers close signaling.
+4. The QR code contains the universal HTTPS URL `/pair#t=<ticket>&s=<secret>`. The URL fragment is not sent in HTTP requests.
+5. The iPhone can obtain the same URL in either of two ways: Camera opens it as a Universal Link, or Watermelon Backup scans it from the One-Time Link node.
+6. Browser and phone connect to `/ws/v1` with the same ticket and distinct roles.
+7. Offer, answer, and ICE candidates are encrypted with AES-256-GCM. The key is derived from the QR secret with HKDF-SHA-256 and the session ID.
+8. WebRTC uses an empty ICE server list. There is no STUN or TURN service in v1.
+9. The browser authenticates the DataChannel with an HMAC challenge. Once it succeeds, both peers close signaling.
 
 ## Trust boundary
 

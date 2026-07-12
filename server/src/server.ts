@@ -145,7 +145,7 @@ function serveStatic(root: string, pathname: string, headOnly: boolean, response
     const info = statSync(file);
     if (!info.isFile()) throw new Error("not_file");
     response.statusCode = 200;
-    response.setHeader("content-type", contentTypes[extname(file)] ?? "application/octet-stream");
+    response.setHeader("content-type", file.endsWith("apple-app-site-association") ? "application/json; charset=utf-8" : contentTypes[extname(file)] ?? "application/octet-stream");
     const hashedAsset = /[/\\]assets[/\\]index-[A-Za-z0-9_-]+\.(?:css|js)$/.test(file);
     response.setHeader("cache-control", file.endsWith("index.html") ? "no-cache" : hashedAsset ? "public, max-age=31536000, immutable" : "public, max-age=3600");
     if (headOnly) {

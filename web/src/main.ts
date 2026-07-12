@@ -694,6 +694,9 @@ function updateMetadata(): void {
   document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute("content", t("intro"));
   document.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.setAttribute("content", t("intro"));
   document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute("href", `https://link.watermelonbackup.com${localePath(locale)}`);
+  const smartBanner = document.querySelector<HTMLMetaElement>('meta[name="apple-itunes-app"]');
+  const appArgument = location.pathname.endsWith("/pair") ? `, app-argument=${location.href}` : "";
+  smartBanner?.setAttribute("content", `app-id=6762260596${appArgument}`);
 }
 
 window.addEventListener("scroll", updateHeader, { passive: true });
