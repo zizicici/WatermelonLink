@@ -1,0 +1,397 @@
+.link-main {
+  min-height: calc(100vh - 106px);
+}
+
+.link-hero {
+  min-height: calc(100vh - 106px);
+  display: grid;
+  align-items: center;
+  padding: 120px 0 72px;
+  background: var(--md-surface);
+}
+
+.link-layout {
+  display: block;
+}
+
+.link-panel {
+  width: min(100%, 620px);
+  min-width: 0;
+  min-height: 420px;
+  margin: 0 auto;
+  padding: 28px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-1);
+}
+
+.link-panel-heading {
+  margin-bottom: 22px;
+}
+
+.link-panel-heading h1 {
+  margin: 0;
+  color: var(--heading-color);
+  font-size: 42px;
+  font-weight: 600;
+  line-height: 1.16;
+  letter-spacing: 0;
+}
+
+.steps {
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--panel-border);
+  list-style: none;
+}
+
+.step {
+  min-height: 154px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px 18px;
+  align-items: start;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.step.disabled {
+  opacity: 0.52;
+}
+
+.step:last-child {
+  border-bottom: 0;
+}
+
+.step-number {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--code-border);
+  border-radius: 50%;
+  color: var(--md-primary);
+  background: var(--step-number-bg);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.step-copy {
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.step-copy h3 {
+  margin: 0;
+  color: var(--md-on-surface);
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.pairing-copy h3,
+.connection-state h3 {
+  margin: 0;
+  color: var(--md-on-surface);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.28;
+}
+
+.step-copy p,
+.pairing-copy p,
+.connection-state p {
+  margin: 8px 0 0;
+  color: var(--md-on-surface-variant);
+  font-size: 15px;
+  line-height: 1.58;
+}
+
+.step > .button {
+  grid-column: 2;
+  justify-self: start;
+  margin-top: 4px;
+}
+
+.folder-actions {
+  grid-column: 2;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.folder-selected {
+  min-width: 0;
+  max-width: min(100%, 340px);
+  justify-content: flex-start;
+  cursor: default;
+}
+
+.folder-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-edit {
+  margin: 0;
+  cursor: pointer;
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+  transform: none;
+  box-shadow: none;
+}
+
+button.button {
+  cursor: pointer;
+}
+
+.inline-error {
+  margin: 14px 0 0;
+  color: var(--md-coral);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.link-panel-footer {
+  margin: 18px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--panel-border);
+  color: var(--md-on-surface-variant);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.pairing-view {
+  min-height: 350px;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 28px;
+  align-items: center;
+  padding: 24px 0;
+  border-top: 1px solid var(--panel-border);
+}
+
+.qr-frame {
+  width: 240px;
+  height: 240px;
+  aspect-ratio: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 8px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--radius);
+  background: #ffffff;
+}
+
+.qr-frame canvas {
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0;
+  min-height: 0;
+  display: block;
+  object-fit: contain;
+}
+
+.expiry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--md-primary);
+}
+
+.pairing-copy .button {
+  margin-top: 20px;
+}
+
+.connection-state {
+  min-height: 350px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 30px 0;
+  border-top: 1px solid var(--panel-border);
+  text-align: center;
+}
+
+.state-orbit {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 24px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 50%;
+}
+
+.state-orbit::before,
+.state-orbit::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+}
+
+.state-orbit::before {
+  inset: 11px;
+  border: 1px solid var(--code-border);
+}
+
+.state-orbit::after {
+  inset: 25px;
+  background: var(--md-primary);
+}
+
+.connection-state.preparing .state-orbit,
+.connection-state.negotiating .state-orbit {
+  animation: link-spin 2.2s linear infinite;
+}
+
+.connection-state.connected .state-orbit::after {
+  background: var(--md-primary-container);
+}
+
+.connection-state .button {
+  margin-top: 22px;
+}
+
+@keyframes link-spin {
+  to { transform: rotate(360deg); }
+}
+
+.turnstile-slot {
+  display: none;
+  margin-top: 18px;
+}
+
+.turnstile-slot.visible {
+  display: block;
+}
+
+.connection-state.preparing .turnstile-slot {
+  width: min(100%, 300px);
+  height: 65px;
+  display: block;
+  visibility: hidden;
+}
+
+.connection-state.preparing .turnstile-slot.visible {
+  visibility: visible;
+}
+
+.handoff-shell {
+  min-height: calc(100vh - 106px);
+  display: grid;
+  place-items: center;
+  padding: 120px 20px 64px;
+  background: var(--md-surface);
+}
+
+.handoff-card {
+  width: min(100%, 560px);
+  padding: 38px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  text-align: center;
+}
+
+.handoff-icon {
+  margin: 0 auto 24px;
+  border-radius: 16px;
+}
+
+.handoff-card h1 {
+  margin: 0;
+  color: var(--hero-title-color);
+  font-size: 42px;
+  font-weight: 600;
+  line-height: 1.16;
+}
+
+.handoff-card > p:not(.eyebrow) {
+  margin: 18px 0 26px;
+  color: var(--md-on-surface-variant);
+}
+
+@media (max-width: 860px) {
+  .link-hero {
+    padding: 108px 0 64px;
+  }
+
+  .link-panel {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .link-hero {
+    padding: 94px 0 52px;
+  }
+
+  .link-panel {
+    padding: 20px;
+  }
+
+  .link-panel-heading h1 {
+    font-size: 32px;
+  }
+
+  .step {
+    grid-template-columns: 38px minmax(0, 1fr);
+    gap: 8px 14px;
+  }
+
+  .step-number {
+    width: 38px;
+    height: 38px;
+  }
+
+  .step-copy {
+    min-height: 38px;
+  }
+
+  .pairing-view {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .pairing-copy .expiry {
+    justify-content: center;
+  }
+
+  .handoff-card {
+    padding: 30px 22px;
+  }
+
+  .handoff-card h1 {
+    font-size: 32px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-state.preparing .state-orbit,
+  .connection-state.negotiating .state-orbit {
+    animation: none;
+  }
+}

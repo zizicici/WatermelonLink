@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://link.watermelonbackup.com/protocol/v1/messages.schema.json",
+  "title": "Watermelon Link signaling messages",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "payload"],
+      "properties": {
+        "kind": { "const": "relay" },
+        "payload": { "type": "string", "maxLength": 20000 }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": { "kind": { "enum": ["complete", "cancel"] } }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+[Unit]
+Description=Watermelon Link signaling service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=watermelon-link
+Group=watermelon-link
+WorkingDirectory=/opt/watermelon-link/current
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/watermelon-link.env
+ExecStart=/usr/local/bin/node dist/server/index.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=512M
+TasksMax=128
+LimitNOFILE=8192
+
+[Install]
+WantedBy=multi-user.target
