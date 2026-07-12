@@ -1,3 +1,7 @@
+link.melonbackup.com {
+	redir https://link.watermelonbackup.com{uri} permanent
+}
+
 link.watermelonbackup.com {
 	encode zstd gzip
 

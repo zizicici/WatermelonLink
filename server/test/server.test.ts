@@ -62,6 +62,18 @@ async function connect(url: string): Promise<{ socket: WebSocket; next: () => Pr
   };
 }
 
+async function issueTicket(origin: string): Promise<string> {
+  const response = await fetch(`${origin}/api/v1/tickets`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ turnstileToken: "development-bypass", capabilityHash: Buffer.alloc(32, 5).toString("base64url") })
+  });
+  assert.equal(response.status, 201);
+  const ticket = await response.json() as { ticket: string; expiresInSeconds: number };
+  assert.ok(ticket.expiresInSeconds > 178 && ticket.expiresInSeconds <= 180);
+  return ticket.ticket;
+}
+
 test("ticket creation allocates no room and two peers can relay opaque signaling", async (context) => {
   const server = createLinkServer(testConfig());
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -69,21 +81,14 @@ test("ticket creation allocates no room and two peers can relay opaque signaling
   const port = (server.address() as AddressInfo).port;
   const origin = `http://127.0.0.1:${port}`;
 
-  const ticketResponse = await fetch(`${origin}/api/v1/tickets`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ turnstileToken: "development-bypass", capabilityHash: Buffer.alloc(32, 5).toString("base64url") })
-  });
-  assert.equal(ticketResponse.status, 201);
-  const ticket = await ticketResponse.json() as { ticket: string; expiresInSeconds: number };
-  assert.ok(ticket.expiresInSeconds > 178 && ticket.expiresInSeconds <= 180);
+  const ticket = await issueTicket(origin);
   assert.deepEqual(await fetch(`${origin}/healthz`).then((response) => response.json()), { ok: true, rooms: 0, connections: 0 });
 
-  const browserPeer = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket.ticket)}`);
+  const browserPeer = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`);
   const browser = browserPeer.socket;
   assert.equal((await browserPeer.next()).event, "waiting");
   const browserJoined = browserPeer.next();
-  const phonePeer = await connect(`ws://127.0.0.1:${port}/ws/v1?role=phone&ticket=${encodeURIComponent(ticket.ticket)}`);
+  const phonePeer = await connect(`ws://127.0.0.1:${port}/ws/v1?role=phone&ticket=${encodeURIComponent(ticket)}`);
   const phone = phonePeer.socket;
   assert.equal((await phonePeer.next()).event, "peer_joined");
   assert.equal((await browserJoined).event, "peer_joined");
@@ -96,7 +101,57 @@ test("ticket creation allocates no room and two peers can relay opaque signaling
   browser.send(JSON.stringify({ kind: "complete" }));
   await Promise.all([browserClosed, phoneClosed]);
 
-  const replay = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket.ticket)}`);
+  const replay = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`);
+  const replayCode = await new Promise<number>((resolve) => replay.socket.once("close", resolve));
+  assert.equal(replayCode, 4409);
+});
+
+test("complete is accepted only from the browser after both peers join", async (context) => {
+  const server = createLinkServer(testConfig());
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+
+  const singleTicket = await issueTicket(origin);
+  const singleBrowser = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(singleTicket)}`);
+  assert.equal((await singleBrowser.next()).event, "waiting");
+  const singleClose = new Promise<number>((resolve) => singleBrowser.socket.once("close", resolve));
+  singleBrowser.socket.send(JSON.stringify({ kind: "complete" }));
+  assert.equal(await singleClose, 4400);
+
+  const pairedTicket = await issueTicket(origin);
+  const browser = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(pairedTicket)}`);
+  assert.equal((await browser.next()).event, "waiting");
+  const browserJoined = browser.next();
+  const phone = await connect(`ws://127.0.0.1:${port}/ws/v1?role=phone&ticket=${encodeURIComponent(pairedTicket)}`);
+  assert.equal((await phone.next()).event, "peer_joined");
+  assert.equal((await browserJoined).event, "peer_joined");
+  const browserClose = new Promise<number>((resolve) => browser.socket.once("close", resolve));
+  const phoneClose = new Promise<number>((resolve) => phone.socket.once("close", resolve));
+  phone.socket.send(JSON.stringify({ kind: "complete" }));
+  assert.deepEqual(await Promise.all([browserClose, phoneClose]), [4400, 4400]);
+});
+
+test("a paired ticket stays consumed after an unexpected disconnect", async (context) => {
+  const server = createLinkServer(testConfig());
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const ticket = await issueTicket(origin);
+
+  const browser = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`);
+  assert.equal((await browser.next()).event, "waiting");
+  const browserJoined = browser.next();
+  const phone = await connect(`ws://127.0.0.1:${port}/ws/v1?role=phone&ticket=${encodeURIComponent(ticket)}`);
+  assert.equal((await phone.next()).event, "peer_joined");
+  assert.equal((await browserJoined).event, "peer_joined");
+  const phoneClosed = new Promise<void>((resolve) => phone.socket.once("close", () => resolve()));
+  browser.socket.terminate();
+  await phoneClosed;
+
+  const replay = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`);
   const replayCode = await new Promise<number>((resolve) => replay.socket.once("close", resolve));
   assert.equal(replayCode, 4409);
 });

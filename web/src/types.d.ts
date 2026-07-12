@@ -15,3 +15,7 @@ interface Window {
     remove: (widgetId: string) => void;
   };
 }
+
+interface FileSystemDirectoryHandle {
+  entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
+}

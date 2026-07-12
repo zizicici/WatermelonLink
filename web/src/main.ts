@@ -3,6 +3,8 @@ import "./brand.css";
 import "./link.css";
 import { authenticationMAC, randomSecret, sha256, SignalCipher, timingSafeEqual, toBase64URL } from "./crypto";
 import { htmlLanguage, localePath, resolveLocale, translator, type Locale, type MessageKey } from "./i18n";
+import { allowsLocalICECandidate, filterLocalICECandidates } from "./local-network";
+import { installFileSystemNode } from "./file-system-node";
 
 type PublicConfig = {
   protocolVersion: number;
@@ -51,6 +53,7 @@ let outboundSignalQueue: Promise<void> = Promise.resolve();
 let pendingLocalCandidates: RTCIceCandidateInit[] = [];
 let pendingRemoteCandidates: RTCIceCandidateInit[] = [];
 let localDescriptionSent = false;
+let disposeFileSystemNode: (() => void) | null = null;
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 
@@ -189,6 +192,7 @@ function connectionContent(): string {
       <div class="connection-state ${state}" aria-live="polite">
         <div class="state-orbit" aria-hidden="true"><span></span></div>
         <h3>${escapeHTML(t(titleKey))}</h3>
+        ${state === "connected" ? `<p>${escapeHTML(t("connectedDetail"))}</p>` : ""}
         ${state !== "connected" ? `<button id="cancel-button" class="button button-tonal" type="button">${escapeHTML(t("cancel"))}</button>` : ""}
         <div id="turnstile-slot" class="turnstile-slot"></div>
       </div>
@@ -417,11 +421,15 @@ async function handleServerMessage(raw: string, attempt: number): Promise<void> 
     const connection = peerConnection;
     if (!connection) throw new Error("Peer connection is unavailable");
     if (signal.type === "answer") {
-      await connection.setRemoteDescription(signal.description);
+      await connection.setRemoteDescription({
+        ...signal.description,
+        sdp: signal.description.sdp ? filterLocalICECandidates(signal.description.sdp) : signal.description.sdp
+      });
       for (const candidate of pendingRemoteCandidates.splice(0)) await connection.addIceCandidate(candidate);
       return;
     }
     if (signal.type === "ice" && signal.candidate) {
+      if (!signal.candidate.candidate || !allowsLocalICECandidate(signal.candidate.candidate)) return;
       if (connection.remoteDescription) await connection.addIceCandidate(signal.candidate);
       else pendingRemoteCandidates.push(signal.candidate);
       return;
@@ -439,6 +447,7 @@ async function beginPeerConnection(attempt: number): Promise<void> {
   connection.addEventListener("icecandidate", (event) => {
     if (!event.candidate || peerConnection !== connection || connectionAttempt !== attempt) return;
     const candidate = event.candidate.toJSON();
+    if (!candidate.candidate || !allowsLocalICECandidate(candidate.candidate)) return;
     if (!localDescriptionSent) pendingLocalCandidates.push(candidate);
     else void queueEncryptedSignal({ type: "ice", candidate }, attempt).catch((error) => failConnection(attempt, error, t("connectionFailed")));
   });
@@ -457,7 +466,14 @@ async function beginPeerConnection(attempt: number): Promise<void> {
   assertCurrentAttempt(attempt);
   await connection.setLocalDescription(offer);
   assertCurrentAttempt(attempt);
-  await queueEncryptedSignal({ type: "offer", description: connection.localDescription ?? offer }, attempt);
+  const localDescription = connection.localDescription ?? offer;
+  await queueEncryptedSignal({
+    type: "offer",
+    description: {
+      type: localDescription.type,
+      sdp: localDescription.sdp ? filterLocalICECandidates(localDescription.sdp) : localDescription.sdp
+    }
+  }, attempt);
   localDescriptionSent = true;
   for (const candidate of pendingLocalCandidates.splice(0)) {
     void queueEncryptedSignal({ type: "ice", candidate }, attempt).catch((error) => failConnection(attempt, error, t("connectionFailed")));
@@ -494,6 +510,10 @@ async function authenticateDataChannel(channel: RTCDataChannel, attempt: number)
       if (authenticationTimer !== null) window.clearTimeout(authenticationTimer);
       authenticationTimer = null;
       channel.removeEventListener("message", onMessage);
+      if (!directoryHandle) throw new Error("Folder access is unavailable");
+      disposeFileSystemNode?.();
+      disposeFileSystemNode = installFileSystemNode(channel, directoryHandle);
+      channel.send(JSON.stringify({ type: "auth_ok", protocolVersion: 2, folderName: directoryHandle.name }));
       clearExpiryTimers();
       state = "connected";
       render();
@@ -577,6 +597,8 @@ function disposeConnection(sendCancel: boolean): void {
   }
   socket?.close();
   dataChannel?.close();
+  disposeFileSystemNode?.();
+  disposeFileSystemNode = null;
   peerConnection?.close();
   socket = null;
   peerConnection = null;

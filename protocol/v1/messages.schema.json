@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://link.watermelonbackup.com/protocol/v1/messages.schema.json",
-  "title": "Watermelon Link signaling messages",
+  "title": "Watermelon Link encrypted signaling envelope messages",
   "oneOf": [
     {
       "type": "object",

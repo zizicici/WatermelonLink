@@ -7,6 +7,7 @@ type Peer = { socket: WebSocket; role: PeerRole; ip: string };
 type Room = {
   claims: TicketClaims;
   peers: Map<PeerRole, Peer>;
+  paired: boolean;
   expiresAt: number;
   signalMessages: number;
   signalBytes: number;
@@ -51,6 +52,7 @@ export class RoomRegistry {
       room = {
         claims,
         peers: new Map(),
+        paired: false,
         expiresAt: Math.min(claims.expiresAt * 1_000, Date.now() + this.limits.roomTTLSeconds * 1_000),
         signalMessages: 0,
         signalBytes: 0
@@ -63,7 +65,7 @@ export class RoomRegistry {
       socket.close(4409, "room_unavailable");
       return false;
     }
-    if (room.claims.capabilityHash !== claims.capabilityHash || room.peers.has(role)) {
+    if (room.paired || room.claims.capabilityHash !== claims.capabilityHash || room.peers.has(role)) {
       socket.close(4409, "room_unavailable");
       return false;
     }
@@ -71,6 +73,10 @@ export class RoomRegistry {
     const peer: Peer = { socket, role, ip };
     room.peers.set(role, peer);
     this.connectionsByIP.set(ip, (this.connectionsByIP.get(ip) ?? 0) + 1);
+    if (room.peers.size === 2) {
+      room.paired = true;
+      this.consume(room.claims.sessionID, room.claims.expiresAt * 1_000);
+    }
     this.send(socket, { kind: "control", event: room.peers.size === 2 ? "peer_joined" : "waiting" });
     if (room.peers.size === 2) this.broadcast(room, { kind: "control", event: "peer_joined" }, role);
 
@@ -110,6 +116,9 @@ export class RoomRegistry {
       return;
     }
     if (message.kind === "complete") {
+      if (peer.role !== "browser" || room.peers.size !== 2) {
+        return this.closeRoom(room, 4400, "invalid_complete", true);
+      }
       this.broadcast(room, { kind: "control", event: "signaling_complete" });
       return this.closeRoom(room, 1000, "signaling_complete", true);
     }
@@ -123,6 +132,8 @@ export class RoomRegistry {
     const next = (this.connectionsByIP.get(peer.ip) ?? 1) - 1;
     if (next <= 0) this.connectionsByIP.delete(peer.ip);
     else this.connectionsByIP.set(peer.ip, next);
+    if (this.rooms.get(room.claims.sessionID) !== room) return;
+    if (room.paired) return this.closeRoom(room, 1000, "peer_left", true);
     if (room.peers.size === 0) this.rooms.delete(room.claims.sessionID);
     else this.broadcast(room, { kind: "control", event: "peer_left" });
   }

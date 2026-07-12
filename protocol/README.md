@@ -1,6 +1,6 @@
-# Watermelon Link protocol v1
+# Watermelon Link protocol v2
 
-The current milestone covers browser-node creation and signaling only. It does not define photo manifests, resume state, file writes, or iOS implementation.
+The protocol turns a user-approved browser directory into a temporary remote-storage node for the existing Watermelon backup pipeline. Signaling remains server-relayed and encrypted; filesystem requests and file bytes travel only over the authenticated DataChannel.
 
 ## Pairing
 
@@ -11,7 +11,7 @@ The current milestone covers browser-node creation and signaling only. It does n
 5. The iPhone can obtain the same URL in either of two ways: Camera opens it as a Universal Link, or Watermelon Backup scans it from the One-Time Link node.
 6. Browser and phone connect to `/ws/v1` with the same ticket and distinct roles.
 7. Offer, answer, and ICE candidates are encrypted with AES-256-GCM. The key is derived from the QR secret with HKDF-SHA-256 and the session ID.
-8. WebRTC uses an empty ICE server list. There is no STUN or TURN service in v1.
+8. WebRTC uses an empty ICE server list. Both peers discard non-host and non-local ICE candidates, including candidates embedded in SDP. There is no STUN or TURN service.
 9. The browser authenticates the DataChannel with an HMAC challenge. Once it succeeds, both peers close signaling.
 
 ## Trust boundary
@@ -43,4 +43,18 @@ The phone replies with an HMAC-SHA-256 over `watermelon-link-data-v1:<nonce>`, k
 {"type":"auth_response","mac":"<base64url HMAC>"}
 ```
 
-No file-transfer message is accepted until this challenge succeeds. File-transfer protocol work belongs to a later milestone.
+After verifying the response, the browser confirms authentication and the selected folder name over the same DataChannel:
+
+```json
+{"type":"auth_ok","protocolVersion":2,"folderName":"Photos Backup"}
+```
+
+The phone enters the connected state only after receiving a valid v2 `auth_ok`. The signaling server's `signaling_complete` event only closes signaling and is not an authentication result. No filesystem message is accepted until this challenge succeeds.
+
+## Temporary filesystem node
+
+The phone sends ordered `fs_request` JSON messages carrying a unique request ID and an operation. The browser replies with a matching `fs_response`. Supported operations cover metadata, directory listing and creation, deletion, copy, move, and 32 KiB upload/download chunks. Every path is normalized beneath the directory handle selected by the user; `.` and `..` traversal is rejected.
+
+Uploads use begin/chunk/finish or abort messages. Browser writes are staged by `FileSystemWritableFileStream` and become visible when the stream closes. `create_if_absent` is serialized within the page and reports `name_collision`, which supplies the existing Lite repository write-lock primitive.
+
+The iOS node is memory-only, uses one backup worker, cannot run in the background, and is removed immediately when the DataChannel or page closes. The signaling server never sees these requests or file bytes.

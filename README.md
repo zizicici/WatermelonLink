@@ -51,4 +51,4 @@ See `deploy/README.md` for the VPS activation sequence and logging constraints.
 
 ## Current boundary
 
-This repository currently completes folder selection, human verification, short-lived pairing, encrypted signaling, WebRTC negotiation, and DataChannel authentication. Photo enumeration, manifests, resumable writes, and iOS code are intentionally deferred until this connection path has been exercised end to end.
+This repository completes folder selection, human verification, short-lived pairing, LAN-only WebRTC negotiation, DataChannel authentication, and the browser side of the temporary remote-storage protocol. The iOS app exposes the authenticated browser folder to its existing backup pipeline for the lifetime of the connection; the node is never persisted as a saved destination.

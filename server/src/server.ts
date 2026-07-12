@@ -41,7 +41,7 @@ export function createLinkServer(config: LinkConfig, developmentMiddleware?: Mid
     }
     if (request.method === "GET" && url.pathname === "/api/v1/config") {
       return json(response, 200, {
-        protocolVersion: 1,
+        protocolVersion: 2,
         publicOrigin: config.publicOrigin,
         turnstileEnabled: config.turnstileEnabled,
         turnstileSiteKey: config.turnstileEnabled ? config.turnstileSiteKey : null
