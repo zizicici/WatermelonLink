@@ -231,6 +231,28 @@ test("raw WebSocket upgrade overload is shed before ticket validation", async (c
   ), /503/);
 });
 
+test("one network cannot drain the raw global upgrade budget", async (context) => {
+  const config = testConfig();
+  config.websocketUpgradesPerMinute = 1;
+  config.websocketRawUpgradesGlobalPerMinute = 2;
+  const server = createLinkServer(config);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const ticket = await issueTicket(origin);
+  const url = `ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`;
+
+  await assert.rejects(connect(url, { origin: "https://attacker.example" }), /403/);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await assert.rejects(connect(url, { origin: "https://attacker.example" }), /429/);
+  }
+
+  const legitimate = await connect(url);
+  assert.equal((await legitimate.next()).event, "waiting");
+  legitimate.socket.close();
+});
+
 test("cross-origin upgrades cannot exhaust the legitimate network budget", async (context) => {
   const config = testConfig();
   config.websocketUpgradesPerMinute = 2;

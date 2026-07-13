@@ -146,20 +146,20 @@ export function createLinkServer(config: LinkConfig, developmentMiddleware?: Mid
         socket.destroy();
       }
     };
+    const ip = clientIP(request, config.trustProxy);
+    const network = clientNetworkPrefix(ip);
+    const trustedRequest = isTrustedWebSocketRequest(request, publicOrigin);
+    const networkLimiter = trustedRequest ? upgradeLimiter : untrustedUpgradeLimiter;
+    if (!networkLimiter.consume(network)) {
+      rejectUpgrade("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nRetry-After: 60\r\n\r\n");
+      return;
+    }
     if (!rawGlobalUpgradeLimiter.consume("global")) {
       rejectUpgrade("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nRetry-After: 60\r\n\r\n");
       return;
     }
-    const ip = clientIP(request, config.trustProxy);
-    const network = clientNetworkPrefix(ip);
-    if (!isTrustedWebSocketRequest(request, publicOrigin)) {
-      rejectUpgrade(untrustedUpgradeLimiter.consume(network)
-        ? "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"
-        : "HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nRetry-After: 60\r\n\r\n");
-      return;
-    }
-    if (!upgradeLimiter.consume(network)) {
-      rejectUpgrade("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nRetry-After: 60\r\n\r\n");
+    if (!trustedRequest) {
+      rejectUpgrade("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
       return;
     }
     let url: URL;
