@@ -274,6 +274,8 @@ test("active upload paths are reserved against competing streams and namespace m
   await assert.rejects(request("upload_begin", {
     transferID: "competitor", path: "/Photos/a.bin", mode: "replace", size: 1,
   }), /upload_conflict/);
+  assert.equal(await request("create_directory", { path: "/Photos" }), null);
+  await assert.rejects(request("create_directory", { path: "/Photos/a.bin" }), /Wrong entry type/);
   await assert.rejects(request("delete", { path: "/Photos" }), /upload_conflict/);
   await assert.rejects(request("move", {
     sourcePath: "/unrelated.bin", destinationPath: "/Photos/a.bin",

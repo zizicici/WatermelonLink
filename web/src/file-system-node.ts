@@ -586,6 +586,11 @@ export async function performOperation(
     }
     case "create_directory": {
       const path = normalizePath(requiredString(request.path));
+      const existing = await entryAt(root, path, true);
+      if (existing) {
+        if (existing.handle.kind !== "directory") throw new DOMException("Wrong entry type", "TypeMismatchError");
+        return null;
+      }
       assertNoActiveUploadOverlap(uploads, path);
       await directoryAt(root, path, true);
       return null;
