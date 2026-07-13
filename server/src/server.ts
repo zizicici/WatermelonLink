@@ -190,11 +190,19 @@ export function createLinkServer(config: LinkConfig, developmentMiddleware?: Mid
     }
   });
 
-  server.on("close", () => {
+  let resourcesClosed = false;
+  const closeResources = () => {
+    if (resourcesClosed) return;
+    resourcesClosed = true;
     rooms.close();
     websocketServer.close();
-  });
-  return server;
+  };
+  server.on("close", closeResources);
+  const shutdown = (callback?: (error?: Error) => void) => {
+    server.close(callback);
+    closeResources();
+  };
+  return Object.assign(server, { shutdown });
 }
 
 function isJSONRequest(request: IncomingMessage): boolean {

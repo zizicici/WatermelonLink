@@ -483,6 +483,27 @@ test("WebSocket control frames are answered once and bounded per connection", as
   );
 });
 
+test("graceful shutdown closes upgraded peers before the HTTP server", async () => {
+  const server = createLinkServer(testConfig());
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const ticket = await issueTicket(origin);
+  const peer = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`);
+  assert.equal((await peer.next()).event, "waiting");
+  const peerClosed = new Promise<void>((resolve) => peer.socket.once("close", () => resolve()));
+
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("graceful shutdown timeout")), 1_000);
+    server.shutdown((error) => {
+      clearTimeout(timeout);
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+  await peerClosed;
+});
+
 test("complete is accepted only from the browser after both peers join", async (context) => {
   const server = createLinkServer(testConfig());
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

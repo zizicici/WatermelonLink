@@ -12,10 +12,21 @@ server.listen(config.port, config.host, () => {
   console.log(`watermelon-link development server at ${config.publicOrigin}`);
 });
 
+let shuttingDown = false;
+
 async function shutdown(): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
   await vite.close();
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(1), 5_000).unref();
+  const timeout = setTimeout(() => {
+    console.error("shutdown_timeout");
+    process.exit(0);
+  }, 5_000);
+  timeout.unref();
+  server.shutdown((error) => {
+    clearTimeout(timeout);
+    process.exit(error ? 1 : 0);
+  });
 }
 
 process.on("SIGINT", () => void shutdown());

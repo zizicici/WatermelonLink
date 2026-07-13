@@ -10,9 +10,20 @@ server.listen(config.port, config.host, () => {
   console.log(`watermelon-link listening on ${config.host}:${config.port}`);
 });
 
+let shuttingDown = false;
+
 function shutdown(): void {
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(1), 5_000).unref();
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const timeout = setTimeout(() => {
+    console.error("shutdown_timeout");
+    process.exit(0);
+  }, 5_000);
+  timeout.unref();
+  server.shutdown((error) => {
+    clearTimeout(timeout);
+    process.exit(error ? 1 : 0);
+  });
 }
 
 process.on("SIGINT", shutdown);
