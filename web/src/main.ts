@@ -322,6 +322,7 @@ function applyBrowserPreflightResult(result: BrowserPreflightResult): void {
 async function chooseFolder(): Promise<void> {
   if (browserPreflightState !== "ready" || (state !== "idle" && state !== "error")) return;
   const error = document.querySelector<HTMLParagraphElement>("#inline-error");
+  if (error) error.textContent = "";
   if (!window.isSecureContext) {
     if (error) error.textContent = t("secureContextRequired");
     return;

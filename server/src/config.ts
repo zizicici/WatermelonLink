@@ -71,6 +71,8 @@ export function loadConfig(): LinkConfig {
   const publicOrigin = normalizePublicOrigin(process.env.PUBLIC_ORIGIN ?? "http://localhost:4173");
   const maxRooms = integer("MAX_ROOMS", 2_000, 10, 100_000);
   const maxServerConnections = integer("MAX_SERVER_CONNECTIONS", maxRooms * 2 + 512, 512, 250_000);
+  const websocketUpgradesPerMinute = integer("WEBSOCKET_UPGRADES_PER_MINUTE", 60, 4, 10_000);
+  const websocketRawUpgradesGlobalPerMinute = integer("WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE", 12_000, 100, 1_000_000);
 
   if (ticketSigningSecret.length < 32) throw new Error("TICKET_SIGNING_SECRET must contain at least 32 characters");
   if (production && turnstileBypass) throw new Error("TURNSTILE_BYPASS cannot be enabled in production");
@@ -79,6 +81,9 @@ export function loadConfig(): LinkConfig {
   }
   if (maxServerConnections < maxRooms * 2 + 128) {
     throw new Error("MAX_SERVER_CONNECTIONS must leave at least 128 connections beyond twice MAX_ROOMS");
+  }
+  if (websocketRawUpgradesGlobalPerMinute < websocketUpgradesPerMinute * 4 - 1) {
+    throw new Error("WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE must be at least four times WEBSOCKET_UPGRADES_PER_MINUTE minus one");
   }
 
   return {
@@ -105,8 +110,8 @@ export function loadConfig(): LinkConfig {
     maxMessageBytes: integer("MAX_MESSAGE_BYTES", 24 * 1024, 1_024, 256 * 1024),
     ticketRequestsPerMinute: integer("TICKET_REQUESTS_PER_MINUTE", 10, 1, 1_000),
     rawTicketRequestsPerMinute: integer("RAW_TICKET_REQUESTS_PER_MINUTE", 60, 10, 10_000),
-    websocketUpgradesPerMinute: integer("WEBSOCKET_UPGRADES_PER_MINUTE", 60, 4, 10_000),
-    websocketRawUpgradesGlobalPerMinute: integer("WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE", 12_000, 100, 1_000_000),
+    websocketUpgradesPerMinute,
+    websocketRawUpgradesGlobalPerMinute,
     websocketUpgradesGlobalPerMinute: integer("WEBSOCKET_UPGRADES_GLOBAL_PER_MINUTE", 6_000, 100, 1_000_000),
     turnstileRequestsPerMinute: integer("TURNSTILE_REQUESTS_PER_MINUTE", 600, 10, 100_000),
     turnstileMaximumConcurrent: integer("TURNSTILE_MAX_CONCURRENT", 32, 1, 1_000),

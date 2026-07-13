@@ -13,7 +13,8 @@ test("public origin validation normalizes HTTP(S) origins and rejects request UR
 
 test("deployment config fixes ticket TTL and preserves HTTP connection headroom", () => {
   const names = [
-    "NODE_ENV", "TURNSTILE_BYPASS", "TICKET_TTL_SECONDS", "MAX_ROOMS", "MAX_SERVER_CONNECTIONS"
+    "NODE_ENV", "TURNSTILE_BYPASS", "TICKET_TTL_SECONDS", "MAX_ROOMS", "MAX_SERVER_CONNECTIONS",
+    "WEBSOCKET_UPGRADES_PER_MINUTE", "WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE"
   ] as const;
   const previous = new Map(names.map((name) => [name, process.env[name]]));
   try {
@@ -28,6 +29,18 @@ test("deployment config fixes ticket TTL and preserves HTTP connection headroom"
     assert.throws(() => loadConfig(), /MAX_SERVER_CONNECTIONS/);
     process.env.MAX_SERVER_CONNECTIONS = "2128";
     assert.equal(loadConfig().maxServerConnections, 2128);
+
+    delete process.env.WEBSOCKET_UPGRADES_PER_MINUTE;
+    delete process.env.WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE;
+    const defaults = loadConfig();
+    assert.equal(defaults.websocketUpgradesPerMinute, 60);
+    assert.equal(defaults.websocketRawUpgradesGlobalPerMinute, 12_000);
+
+    process.env.WEBSOCKET_UPGRADES_PER_MINUTE = "60";
+    process.env.WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE = "238";
+    assert.throws(() => loadConfig(), /WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE/);
+    process.env.WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE = "239";
+    assert.equal(loadConfig().websocketRawUpgradesGlobalPerMinute, 239);
   } finally {
     for (const name of names) {
       const value = previous.get(name);
