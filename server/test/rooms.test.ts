@@ -153,6 +153,15 @@ test("room registry bounds client control frames and heartbeat backpressure", ()
   assert.deepEqual(controlRegistry.stats(), { rooms: 0, connections: 0 });
   controlRegistry.close();
 
+  const pongBackpressureRegistry = new RoomRegistry(limits());
+  const pongSlowPeer = socket();
+  pongBackpressureRegistry.attach(asWebSocket(pongSlowPeer), claims("pong-backpressure"), "browser", "203.0.113.1");
+  pongSlowPeer.bufferedAmount = 64 * 1024;
+  pongSlowPeer.emit("ping", Buffer.alloc(1));
+  assert.equal(pongSlowPeer.terminateCount, 1);
+  assert.deepEqual(pongBackpressureRegistry.stats(), { rooms: 0, connections: 0 });
+  pongBackpressureRegistry.close();
+
   const backpressureRegistry = new RoomRegistry(limits());
   const slowPeer = socket();
   backpressureRegistry.attach(asWebSocket(slowPeer), claims("control-backpressure"), "browser", "203.0.113.1");

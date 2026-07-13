@@ -206,19 +206,29 @@ const folderErrorMessages: Record<Locale, Pick<Messages, FolderErrorMessageKey>>
   uk: { folderPermissionDenied: "Дозвольте цьому сайту доступ до папки та повторіть спробу.", folderSelectionFailed: "Не вдалося відкрити папку. Повторіть спробу або виберіть іншу папку." }
 };
 
+const latinAmericanSpanishRegions = new Set([
+  "419", "ar", "bo", "cl", "co", "cr", "cu", "do", "ec", "sv", "gt", "hn",
+  "mx", "ni", "pa", "py", "pe", "pr", "us", "uy", "ve",
+]);
+
+export function localeForLanguageIdentifier(identifier: string): Locale {
+  const language = identifier.toLowerCase().replaceAll("_", "-");
+  if (language.includes("zh-tw") || language.includes("zh-hk") || language.includes("hant")) return "zh-Hant";
+  if (language.startsWith("zh")) return "zh-Hans";
+  if (language.startsWith("pt-br")) return "pt-BR";
+  if (language.startsWith("pt")) return "pt-PT";
+  const fields = language.split("-");
+  if (fields[0] === "es" && fields.slice(1).some((field) => latinAmericanSpanishRegions.has(field))) return "es-419";
+  const short = fields[0];
+  return isLocale(short) ? short : "en";
+}
+
 export function resolveLocale(): Locale {
   const segment = location.pathname.split("/").filter(Boolean)[0];
   if (isLocale(segment)) return segment;
   const stored = localStorage.getItem("watermelon-link-locale");
   if (isLocale(stored)) return stored;
-  const language = navigator.language.toLowerCase();
-  if (language.includes("zh-tw") || language.includes("zh-hk") || language.includes("hant")) return "zh-Hant";
-  if (language.startsWith("zh")) return "zh-Hans";
-  if (language.startsWith("pt-br")) return "pt-BR";
-  if (language.startsWith("pt")) return "pt-PT";
-  if (language.startsWith("es-419")) return "es-419";
-  const short = language.split("-")[0];
-  return isLocale(short) ? short : "en";
+  return localeForLanguageIdentifier(navigator.language);
 }
 
 export function localePath(locale: Locale): string {

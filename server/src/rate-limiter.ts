@@ -11,8 +11,13 @@ export class FixedWindowRateLimiter {
 
   consume(key: string, now = Date.now()): boolean {
     const existing = this.entries.get(key);
-    if (!existing || existing.resetAt <= now) {
-      this.makeSpace(now);
+    if (existing?.resetAt !== undefined && existing.resetAt <= now) {
+      this.entries.delete(key);
+      this.entries.set(key, { count: 1, resetAt: now + this.windowMilliseconds });
+      return true;
+    }
+    if (!existing) {
+      if (!this.makeSpace(now)) return false;
       this.entries.set(key, { count: 1, resetAt: now + this.windowMilliseconds });
       return true;
     }
@@ -21,16 +26,15 @@ export class FixedWindowRateLimiter {
     return true;
   }
 
-  private makeSpace(now: number): void {
-    if (this.entries.size < this.maxKeys) return;
+  private makeSpace(now: number): boolean {
+    if (this.entries.size < this.maxKeys) return true;
     let inspected = 0;
     for (const [key, entry] of this.entries) {
       if (entry.resetAt <= now) this.entries.delete(key);
-      if (this.entries.size < this.maxKeys) return;
+      if (this.entries.size < this.maxKeys) return true;
       inspected += 1;
       if (inspected >= 32) break;
     }
-    const oldest = this.entries.keys().next().value as string | undefined;
-    if (oldest) this.entries.delete(oldest);
+    return false;
   }
 }

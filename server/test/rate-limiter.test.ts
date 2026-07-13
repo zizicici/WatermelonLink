@@ -14,8 +14,9 @@ test("rate limiter bounds the number of tracked keys", () => {
   const limiter = new FixedWindowRateLimiter(1, 60_000, 2);
   assert.equal(limiter.consume("one", 0), true);
   assert.equal(limiter.consume("two", 0), true);
-  assert.equal(limiter.consume("three", 0), true);
-  assert.equal(limiter.consume("one", 1), true);
+  assert.equal(limiter.consume("three", 0), false);
+  assert.equal(limiter.consume("one", 1), false);
+  assert.equal(limiter.consume("three", 60_000), true);
 });
 
 test("two phase-shifted network buckets leave one slot in a four-times-minus-one raw global budget", () => {

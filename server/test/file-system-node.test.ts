@@ -287,6 +287,30 @@ test("active upload paths are reserved against competing streams and namespace m
   await request("upload_finish", { transferID: "competitor" });
 });
 
+test("four manifest uploads can reuse their shared existing directory while active", async () => {
+  const root = new MemoryDirectory("Backup") as unknown as FileSystemDirectoryHandle;
+  const uploads = new Map<string, UploadState>();
+  const request = (operation: string, fields: Record<string, unknown> = {}) =>
+    performOperation(root, uploads, { operation, ...fields });
+  const directory = "/.watermelon/months";
+  await request("create_directory", { path: directory });
+
+  for (let index = 0; index < 4; index += 1) {
+    assert.equal(await request("create_directory", { path: directory }), null);
+    await request("upload_begin", {
+      transferID: `manifest-${index}`,
+      path: `${directory}/2026-0${index + 1}.sqlite.${index}.tmp`,
+      mode: "replace",
+      size: 1,
+    });
+  }
+  for (let index = 0; index < 4; index += 1) {
+    await uploadBytes(uploads, `manifest-${index}`, Buffer.from([index]));
+    await request("upload_finish", { transferID: `manifest-${index}` });
+  }
+  assert.equal(uploads.size, 0);
+});
+
 test("browser admits four backup workers plus one lock refresh upload", async () => {
   const root = new MemoryDirectory("Backup") as unknown as FileSystemDirectoryHandle;
   const uploads = new Map<string, UploadState>();

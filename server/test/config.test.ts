@@ -49,3 +49,36 @@ test("deployment config fixes ticket TTL and preserves HTTP connection headroom"
     }
   }
 });
+
+test("production config requires signing and Turnstile secrets without bypass", () => {
+  const names = [
+    "NODE_ENV", "TURNSTILE_BYPASS", "TICKET_SIGNING_SECRET", "TURNSTILE_SITE_KEY",
+    "TURNSTILE_SECRET_KEY", "PUBLIC_ORIGIN",
+  ] as const;
+  const previous = new Map(names.map((name) => [name, process.env[name]]));
+  try {
+    process.env.NODE_ENV = "production";
+    process.env.PUBLIC_ORIGIN = "https://link.watermelonbackup.com";
+    process.env.TURNSTILE_BYPASS = "false";
+    process.env.TICKET_SIGNING_SECRET = "s".repeat(32);
+    process.env.TURNSTILE_SITE_KEY = "site-key";
+    process.env.TURNSTILE_SECRET_KEY = "secret-key";
+    assert.equal(loadConfig().production, true);
+
+    process.env.TICKET_SIGNING_SECRET = "too-short";
+    assert.throws(() => loadConfig(), /TICKET_SIGNING_SECRET/);
+    process.env.TICKET_SIGNING_SECRET = "s".repeat(32);
+
+    process.env.TURNSTILE_BYPASS = "true";
+    assert.throws(() => loadConfig(), /TURNSTILE_BYPASS/);
+    process.env.TURNSTILE_BYPASS = "false";
+    delete process.env.TURNSTILE_SITE_KEY;
+    assert.throws(() => loadConfig(), /Turnstile keys/);
+  } finally {
+    for (const name of names) {
+      const value = previous.get(name);
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
+});

@@ -169,6 +169,7 @@ test("security policy limits WebSocket connections to the configured origin", as
   const response = await fetch(`http://127.0.0.1:${port}/healthz`);
   const policy = response.headers.get("content-security-policy") ?? "";
 
+  assert.equal(response.headers.get("strict-transport-security"), "max-age=31536000; includeSubDomains");
   assert.match(policy, /connect-src 'self' wss:\/\/link\.watermelonbackup\.com https:\/\/challenges\.cloudflare\.com/);
   assert.doesNotMatch(policy, /connect-src[^;]*\sws:\s/);
   assert.doesNotMatch(policy, /connect-src[^;]*\swss:\s/);
