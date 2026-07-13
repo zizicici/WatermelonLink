@@ -20,6 +20,7 @@ export type LinkConfig = {
   ticketRequestsPerMinute: number;
   rawTicketRequestsPerMinute: number;
   websocketUpgradesPerMinute: number;
+  websocketRawUpgradesGlobalPerMinute: number;
   websocketUpgradesGlobalPerMinute: number;
   turnstileRequestsPerMinute: number;
   turnstileMaximumConcurrent: number;
@@ -105,6 +106,7 @@ export function loadConfig(): LinkConfig {
     ticketRequestsPerMinute: integer("TICKET_REQUESTS_PER_MINUTE", 10, 1, 1_000),
     rawTicketRequestsPerMinute: integer("RAW_TICKET_REQUESTS_PER_MINUTE", 60, 10, 10_000),
     websocketUpgradesPerMinute: integer("WEBSOCKET_UPGRADES_PER_MINUTE", 60, 4, 10_000),
+    websocketRawUpgradesGlobalPerMinute: integer("WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE", 12_000, 100, 1_000_000),
     websocketUpgradesGlobalPerMinute: integer("WEBSOCKET_UPGRADES_GLOBAL_PER_MINUTE", 6_000, 100, 1_000_000),
     turnstileRequestsPerMinute: integer("TURNSTILE_REQUESTS_PER_MINUTE", 600, 10, 100_000),
     turnstileMaximumConcurrent: integer("TURNSTILE_MAX_CONCURRENT", 32, 1, 1_000),

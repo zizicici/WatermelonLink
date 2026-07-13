@@ -1,3 +1,5 @@
+import { localICECandidateStatistics } from "./local-network";
+
 export type BrowserPreflightResult =
   | { kind: "ready" }
   | { kind: "unsupported"; reason: "secure-context" | "browser" }
@@ -54,13 +56,13 @@ async function probeLocalWebRTC(timeoutMilliseconds = 20_000): Promise<boolean> 
     const offer = await offerer.createOffer();
     await offerer.setLocalDescription(offer);
     await waitForICEGathering(offerer, deadline);
-    if (!offerer.localDescription) return false;
+    if (!offerer.localDescription || !hasAllowedLocalICECandidate(offerer.localDescription.sdp)) return false;
     await answerer.setRemoteDescription(offerer.localDescription);
 
     const answer = await answerer.createAnswer();
     await answerer.setLocalDescription(answer);
     await waitForICEGathering(answerer, deadline);
-    if (!answerer.localDescription) return false;
+    if (!answerer.localDescription || !hasAllowedLocalICECandidate(answerer.localDescription.sdp)) return false;
     await offerer.setRemoteDescription(answerer.localDescription);
     return await opened;
   } catch {
@@ -71,6 +73,10 @@ async function probeLocalWebRTC(timeoutMilliseconds = 20_000): Promise<boolean> 
     offerer?.close();
     answerer?.close();
   }
+}
+
+export function hasAllowedLocalICECandidate(sdp: string | null | undefined): boolean {
+  return typeof sdp === "string" && localICECandidateStatistics(sdp).allowed > 0;
 }
 
 function waitForICEGathering(connection: RTCPeerConnection, deadline: number): Promise<void> {

@@ -30,6 +30,7 @@ function testConfig(): LinkConfig {
     ticketRequestsPerMinute: 10,
     rawTicketRequestsPerMinute: 60,
     websocketUpgradesPerMinute: 60,
+    websocketRawUpgradesGlobalPerMinute: 1_200,
     websocketUpgradesGlobalPerMinute: 600,
     turnstileRequestsPerMinute: 100,
     turnstileMaximumConcurrent: 4,
@@ -209,6 +210,25 @@ test("invalid WebSocket upgrades do not consume the signed-upgrade budget", asyn
   const legitimate = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`);
   assert.equal((await legitimate.next()).event, "waiting");
   legitimate.socket.close();
+});
+
+test("raw WebSocket upgrade overload is shed before ticket validation", async (context) => {
+  const config = testConfig();
+  config.websocketRawUpgradesGlobalPerMinute = 1;
+  const server = createLinkServer(config);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const ticket = await issueTicket(origin);
+
+  await assert.rejects(connect(
+    `ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=invalid`,
+    { origin: "https://attacker.example" }
+  ), /403/);
+  await assert.rejects(connect(
+    `ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`
+  ), /503/);
 });
 
 test("cross-origin upgrades cannot exhaust the legitimate network budget", async (context) => {
@@ -412,6 +432,41 @@ test("resetting rejected upgrade sockets cannot terminate the server", async (co
   const browser = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`);
   assert.equal((await browser.next()).event, "waiting");
   browser.socket.close();
+});
+
+test("rejected upgrade sockets are force-closed when the client keeps its write side open", async (context) => {
+  const server = createLinkServer(testConfig());
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const socket = connectTCP({ port, host: "127.0.0.1", allowHalfOpen: true });
+  context.after(() => socket.destroy());
+  let response = "";
+  socket.setEncoding("utf8");
+  socket.on("data", (chunk) => { response += chunk; });
+  await new Promise<void>((resolve, reject) => {
+    socket.once("error", reject);
+    socket.once("connect", () => {
+      socket.write([
+        "GET /ws/v1?role=browser&ticket=invalid HTTP/1.1",
+        `Host: 127.0.0.1:${port}`,
+        "Connection: Upgrade",
+        "Upgrade: websocket",
+        "Sec-WebSocket-Version: 13",
+        `Sec-WebSocket-Key: ${Buffer.alloc(16, 4).toString("base64")}`,
+        "Origin: https://attacker.example",
+        "",
+        "",
+      ].join("\r\n"));
+    });
+    socket.once("end", resolve);
+  });
+  assert.match(response, /^HTTP\/1\.1 403 Forbidden/);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const connections = await new Promise<number>((resolve, reject) => {
+    server.getConnections((error, count) => error ? reject(error) : resolve(count));
+  });
+  assert.equal(connections, 0);
 });
 
 test("ticket creation allocates no room and two peers can relay opaque signaling", async (context) => {

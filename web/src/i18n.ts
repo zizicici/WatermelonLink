@@ -8,7 +8,7 @@ const en = {
   panelTitle: "One-Time Connection over Your Local Network", panelIntro: "Watermelon Link works while this page and the Watermelon app stay open.", statusReady: "Ready", statusPreparing: "Preparing", statusWaiting: "Waiting", statusConnecting: "Connecting", statusDirect: "Direct", statusAction: "Action Needed",
   preflightTitle: "Check Browser", preflightCheck: "Start Check", preflightChecking: "Checking…", preflightReady: "Available", preflightRetry: "Try Again", localNetworkDenied: "Allow Local Network access for this site in your browser settings, then try again.", localNetworkUnavailable: "The browser WebRTC check failed. Reload this page and try again.",
   chooseTitle: "Choose a Backup Folder", chooseDetail: "The page can only access the folder you approve.", choose: "Choose", change: "Change", connectTitle: "Create a Secure Link", connectDetail: "Keep both devices on the same local network. Turn off VPN if connection fails.", singleWriterDetail: "Use this folder in only one Link at a time. Do not modify it during backup.", connect: "Create", preparing: "Preparing Secure Link…", waitingTitle: "Scan with Your iPhone", waitingDetail: "Scan with Camera, or from One-Time Connection in Watermelon Backup.", expires: "Expires in", cancel: "Cancel", disconnect: "Disconnect", connectingTitle: "Connecting Directly…", connectingDetail: "Your devices are negotiating a local WebRTC connection.", connectedTitle: "Ready to Back Up", connectedDetail: "Keep this page open, then choose photos and start the backup on your iPhone.",
-  browserUnsupported: "Use the latest Chrome or Edge on macOS or Windows to choose a folder.", secureContextRequired: "Folder access requires HTTPS or localhost.", folderCancelled: "No folder was selected.", connectionFailed: "The secure link could not be created. Please try again.", browserNodeInUse: "Another tab is already using this browser node.", browserNodeCleanupPending: "A previous file operation is still closing. If this continues, reload this page.", peerDisconnected: "Your iPhone disconnected. Create a new link to reconnect.", pairingExpired: "This pairing link expired. Create a new one.", directNote: "If direct connection fails, check that both devices use the same local network and turn off VPN.", handoffTitle: "Open This Link in Watermelon Backup", handoffDetail: "This pairing link is intended for the Watermelon iOS app.", appStore: "Get Watermelon Backup"
+  browserUnsupported: "Use the latest Chrome or Edge on macOS or Windows to choose a folder.", secureContextRequired: "Folder access requires HTTPS or localhost.", folderCancelled: "No folder was selected.", folderPermissionDenied: "Allow this site to access the folder, then try again.", folderSelectionFailed: "The folder could not be opened. Try again or choose another folder.", connectionFailed: "The secure link could not be created. Please try again.", browserNodeInUse: "Another tab is already using this browser node.", browserNodeCleanupPending: "A previous file operation is still closing. If this continues, reload this page.", peerDisconnected: "Your iPhone disconnected. Create a new link to reconnect.", pairingExpired: "This pairing link expired. Create a new one.", directNote: "If direct connection fails, check that both devices use the same local network and turn off VPN.", handoffTitle: "Open This Link in Watermelon Backup", handoffDetail: "This pairing link is intended for the Watermelon iOS app.", appStore: "Get Watermelon Backup"
 } as const;
 
 type Messages = { [Key in keyof typeof en]: string };
@@ -188,6 +188,24 @@ const preflightMessages: Record<Locale, Pick<Messages, PreflightMessageKey>> = {
   uk: { preflightTitle: "Перевірити браузер", preflightCheck: "Почати перевірку", preflightChecking: "Перевірка…", preflightReady: "Доступно", preflightRetry: "Повторити", localNetworkDenied: "Дозвольте цьому сайту доступ до локальної мережі в налаштуваннях браузера та повторіть спробу.", localNetworkUnavailable: "Перевірка WebRTC у браузері не пройшла. Перезавантажте сторінку та повторіть спробу." }
 };
 
+type FolderErrorMessageKey = "folderPermissionDenied" | "folderSelectionFailed";
+
+const folderErrorMessages: Record<Locale, Pick<Messages, FolderErrorMessageKey>> = {
+  en: { folderPermissionDenied: en.folderPermissionDenied, folderSelectionFailed: en.folderSelectionFailed },
+  "zh-Hans": { folderPermissionDenied: "请允许本站访问该文件夹，然后重试。", folderSelectionFailed: "无法打开这个文件夹，请重试或选择其他文件夹。" },
+  "zh-Hant": { folderPermissionDenied: "請允許本站存取該資料夾，然後重試。", folderSelectionFailed: "無法開啟這個資料夾，請重試或選擇其他資料夾。" },
+  ja: { folderPermissionDenied: "このサイトのフォルダアクセスを許可して、もう一度お試しください。", folderSelectionFailed: "フォルダを開けませんでした。再試行するか、別のフォルダを選択してください。" },
+  ko: { folderPermissionDenied: "이 사이트의 폴더 접근을 허용한 후 다시 시도하세요.", folderSelectionFailed: "폴더를 열 수 없습니다. 다시 시도하거나 다른 폴더를 선택하세요." },
+  de: { folderPermissionDenied: "Erlauben Sie dieser Website den Zugriff auf den Ordner und versuchen Sie es erneut.", folderSelectionFailed: "Der Ordner konnte nicht geöffnet werden. Versuchen Sie es erneut oder wählen Sie einen anderen Ordner." },
+  fr: { folderPermissionDenied: "Autorisez ce site à accéder au dossier, puis réessayez.", folderSelectionFailed: "Impossible d’ouvrir le dossier. Réessayez ou choisissez-en un autre." },
+  es: { folderPermissionDenied: "Permite que este sitio acceda a la carpeta y vuelve a intentarlo.", folderSelectionFailed: "No se pudo abrir la carpeta. Inténtalo de nuevo o elige otra." },
+  "es-419": { folderPermissionDenied: "Permite que este sitio acceda a la carpeta y vuelve a intentarlo.", folderSelectionFailed: "No se pudo abrir la carpeta. Inténtalo de nuevo o elige otra." },
+  "pt-BR": { folderPermissionDenied: "Permita que este site acesse a pasta e tente novamente.", folderSelectionFailed: "Não foi possível abrir a pasta. Tente novamente ou escolha outra pasta." },
+  "pt-PT": { folderPermissionDenied: "Permita que este site aceda à pasta e tente novamente.", folderSelectionFailed: "Não foi possível abrir a pasta. Tente novamente ou escolha outra pasta." },
+  ru: { folderPermissionDenied: "Разрешите этому сайту доступ к папке и повторите попытку.", folderSelectionFailed: "Не удалось открыть папку. Повторите попытку или выберите другую папку." },
+  uk: { folderPermissionDenied: "Дозвольте цьому сайту доступ до папки та повторіть спробу.", folderSelectionFailed: "Не вдалося відкрити папку. Повторіть спробу або виберіть іншу папку." }
+};
+
 export function resolveLocale(): Locale {
   const segment = location.pathname.split("/").filter(Boolean)[0];
   if (isLocale(segment)) return segment;
@@ -226,6 +244,7 @@ export function translator(locale: Locale): (key: MessageKey) => string {
     if (key === "browserNodeInUse") return browserNodeInUseMessages[locale];
     if (key === "browserNodeCleanupPending") return browserNodeCleanupPendingMessages[locale];
     if (key in preflightMessages[locale]) return preflightMessages[locale][key as PreflightMessageKey];
+    if (key in folderErrorMessages[locale]) return folderErrorMessages[locale][key as FolderErrorMessageKey];
     return messages[locale][key];
   };
 }

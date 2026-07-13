@@ -190,7 +190,10 @@ export class RoomRegistry {
   private detach(room: Room, peer: Peer): void {
     if (!this.releasePeer(room, peer)) return;
     if (this.rooms.get(room.claims.sessionID) !== room) return;
-    if (room.paired) return this.closeRoom(room, 1000, "peer_left", true);
+    if (room.paired) {
+      this.broadcast(room, { kind: "control", event: "peer_left" });
+      return this.closeRoom(room, 1000, "peer_left", true);
+    }
     if (room.peers.size === 0) {
       this.rooms.delete(room.claims.sessionID);
       this.releaseUnpairedReservation(room);

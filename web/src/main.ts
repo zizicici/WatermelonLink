@@ -335,7 +335,13 @@ async function chooseFolder(): Promise<void> {
     linkDiagnostic("folder selected");
     render();
   } catch (caught) {
-    if ((caught as DOMException).name !== "AbortError" && error) error.textContent = t("folderCancelled");
+    const name = caught instanceof DOMException ? caught.name : "";
+    if (name === "AbortError") return;
+    if (error) {
+      error.textContent = t(name === "NotAllowedError" || name === "SecurityError"
+        ? "folderPermissionDenied"
+        : "folderSelectionFailed");
+    }
   }
 }
 

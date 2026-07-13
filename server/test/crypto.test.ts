@@ -43,3 +43,16 @@ test("protocol v1 signaling uses directional keys and strict framing", async () 
   ciphertext[0] ^= 0x01;
   await assert.rejects(phone.decrypt(`${iv}.${toBase64URL(ciphertext)}`), { name: "OperationError" });
 });
+
+test("protocol v1 signaling matches the fixed iOS AES-GCM vector", async () => {
+  const secret = Uint8Array.from({ length: 32 }, (_, index) => index);
+  const sessionID = "ICEiIyQlJicoKSorLC0uLw";
+  const browser = await SignalCipher.create(secret, sessionID, "browser");
+  const phone = await SignalCipher.create(secret, sessionID, "phone");
+  const encrypted = await browser.encrypt(
+    { type: "offer" },
+    Uint8Array.from({ length: 12 }, (_, index) => index)
+  );
+  assert.equal(encrypted, "AAECAwQFBgcICQoL.8y3h-aBy4OOXSdgN2xeSOPf6EDkyLutWaWQ8rDo3wSk");
+  assert.deepEqual(await phone.decrypt(encrypted), { type: "offer" });
+});

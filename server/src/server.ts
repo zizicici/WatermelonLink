@@ -32,6 +32,7 @@ export function createLinkServer(config: LinkConfig, developmentMiddleware?: Mid
   const upgradeLimiter = new FixedWindowRateLimiter(config.websocketUpgradesPerMinute, 60_000);
   const untrustedUpgradeLimiter = new FixedWindowRateLimiter(config.websocketUpgradesPerMinute, 60_000);
   const ticketUpgradeLimiter = new FixedWindowRateLimiter(12, 60_000);
+  const rawGlobalUpgradeLimiter = new FixedWindowRateLimiter(config.websocketRawUpgradesGlobalPerMinute, 60_000, 1);
   const globalUpgradeLimiter = new FixedWindowRateLimiter(config.websocketUpgradesGlobalPerMinute, 60_000, 1);
   const turnstile = new TurnstileVerifier({
     secretKey: config.turnstileSecretKey,
@@ -136,12 +137,19 @@ export function createLinkServer(config: LinkConfig, developmentMiddleware?: Mid
   server.on("upgrade", (request, socket, head) => {
     socket.on("error", () => socket.destroy());
     const rejectUpgrade = (response: string) => {
+      const forceClose = setTimeout(() => socket.destroy(), 250);
+      forceClose.unref();
+      socket.once("close", () => clearTimeout(forceClose));
       try {
-        socket.end(response);
+        socket.end(response, () => socket.destroy());
       } catch {
         socket.destroy();
       }
     };
+    if (!rawGlobalUpgradeLimiter.consume("global")) {
+      rejectUpgrade("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nRetry-After: 60\r\n\r\n");
+      return;
+    }
     const ip = clientIP(request, config.trustProxy);
     const network = clientNetworkPrefix(ip);
     if (!isTrustedWebSocketRequest(request, publicOrigin)) {

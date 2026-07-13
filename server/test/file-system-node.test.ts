@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   acceptUploadFrame,
   acceptDownloadAcknowledgement,
+  consumeDownloadAcknowledgementBudget,
   availableDownloadWindowBytes,
   decodeUploadFrame,
   encodeDownloadFrame,
@@ -654,6 +655,14 @@ test("late download acknowledgement for an expired transfer is ignored", () => {
     transferID: "00112233-4455-4677-8899-aabbccddeeff",
     receivedSize: 1,
   }));
+});
+
+test("download acknowledgement processing has a bounded per-second budget", () => {
+  const budget = { windowStartedAt: 100, messages: 4_095 };
+  assert.equal(consumeDownloadAcknowledgementBudget(budget, 999), true);
+  assert.equal(consumeDownloadAcknowledgementBudget(budget, 999), false);
+  assert.equal(consumeDownloadAcknowledgementBudget(budget, 1_100), true);
+  assert.equal(budget.messages, 1);
 });
 
 test("authenticated filesystem node closes on an invalid request identifier", async () => {
@@ -1329,7 +1338,7 @@ test("download idle expiry cancels native-buffer backpressure and quiesces", asy
     await Promise.resolve();
     assert.equal(listeners.get("bufferedamountlow")?.size, 1);
     assert.equal(listeners.get("close")?.size, 1);
-    assert.equal(timers.size, 1);
+    assert.equal(timers.size, 2);
 
     [...timers.values()].forEach((fire) => fire());
     await Promise.resolve();

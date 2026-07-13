@@ -65,6 +65,11 @@ type UploadAdmissionBudget = {
   controlReservations: number;
 };
 
+export type DownloadAcknowledgementBudget = {
+  windowStartedAt: number;
+  messages: number;
+};
+
 const maximumActiveDataUploads = 4;
 const maximumActiveControlUploads = 1;
 const maximumActiveDataDownloads = 2;
@@ -82,6 +87,7 @@ const maximumIncomingMessageBytes = uploadFrameHeaderBytes + maximumUploadFrameP
 const uploadWriteBatchBytes = 512 * 1024;
 const maximumQueuedRequests = 640;
 const maximumQueuedRequestBytes = 8 * 1024 * 1024;
+const maximumDownloadAcknowledgementsPerSecond = 4_096;
 const uploadIdleTimeoutMilliseconds = 60_000;
 const downloadIdleTimeoutMilliseconds = 300_000;
 const maximumUnacknowledgedDownloadBytes = 4 * 1024 * 1024;
@@ -130,6 +136,7 @@ export function installFileSystemNodeController(
   };
   const downloadReadBudget: DownloadReadBudget = { orphanedReads: 0, settlingReads: new Set() };
   const uploadAdmissionBudget: UploadAdmissionBudget = { dataReservations: 0, controlReservations: 0 };
+  const acknowledgementBudget: DownloadAcknowledgementBudget = { windowStartedAt: performance.now(), messages: 0 };
   let queue = Promise.resolve();
   let lockQueue = Promise.resolve();
   let disposed = false;
@@ -196,6 +203,10 @@ export function installFileSystemNodeController(
         return;
       }
       if (request.type === "fs_download_ack") {
+        if (!consumeDownloadAcknowledgementBudget(acknowledgementBudget)) {
+          closeForProtocolViolation();
+          return;
+        }
         try {
           acceptDownloadAcknowledgement(downloads, downloadFlowWaiters, request);
         } catch {
@@ -363,6 +374,18 @@ export function installFileSystemNodeController(
     dispose,
     waitForQuiescence: beginQuiescence
   };
+}
+
+export function consumeDownloadAcknowledgementBudget(
+  budget: DownloadAcknowledgementBudget,
+  now = performance.now()
+): boolean {
+  if (now - budget.windowStartedAt >= 1_000 || now < budget.windowStartedAt) {
+    budget.windowStartedAt = now;
+    budget.messages = 0;
+  }
+  budget.messages += 1;
+  return budget.messages <= maximumDownloadAcknowledgementsPerSecond;
 }
 
 export function decodeUploadFrame(buffer: ArrayBuffer): UploadFrame {
@@ -970,6 +993,7 @@ async function waitForReservedDownloadSendCapacity(
     channel.bufferedAmountLowThreshold = 0;
     await new Promise<void>((resolve, reject) => {
       let settled = false;
+      let poll: ReturnType<typeof setTimeout> | undefined;
       const onLow = () => finish();
       const onFlowChange = () => finish();
       const onClose = () => finish(new Error("channel_closed"));
@@ -977,6 +1001,7 @@ async function waitForReservedDownloadSendCapacity(
         if (settled) return;
         settled = true;
         waiters.delete(onFlowChange);
+        if (poll) clearTimeout(poll);
         channel.removeEventListener("bufferedamountlow", onLow);
         channel.removeEventListener("close", onClose);
         if (error) reject(error);
@@ -985,6 +1010,7 @@ async function waitForReservedDownloadSendCapacity(
       waiters.add(onFlowChange);
       channel.addEventListener("bufferedamountlow", onLow, { once: true });
       channel.addEventListener("close", onClose, { once: true });
+      poll = setTimeout(onLow, 50);
       if (downloads.get(transferID) !== download) finish();
       else if (channel.readyState !== "open") finish(new Error("channel_closed"));
       else if (channel.bufferedAmount + sendBudget.reservedBytes <= maximumBufferedBytes) finish();
@@ -1033,6 +1059,7 @@ async function waitForDownloadSendCapacity(
     channel.bufferedAmountLowThreshold = 0;
     await new Promise<void>((resolve, reject) => {
       let settled = false;
+      let poll: ReturnType<typeof setTimeout> | undefined;
       const onLow = () => finish();
       const onClose = () => finish(new Error("channel_closed"));
       const onFlowChange = () => finish();
@@ -1040,6 +1067,7 @@ async function waitForDownloadSendCapacity(
         if (settled) return;
         settled = true;
         waiters.delete(onFlowChange);
+        if (poll) clearTimeout(poll);
         channel.removeEventListener("bufferedamountlow", onLow);
         channel.removeEventListener("close", onClose);
         if (error) reject(error);
@@ -1048,6 +1076,7 @@ async function waitForDownloadSendCapacity(
       waiters.add(onFlowChange);
       channel.addEventListener("bufferedamountlow", onLow, { once: true });
       channel.addEventListener("close", onClose, { once: true });
+      poll = setTimeout(onLow, 50);
       if (downloads.get(transferID) !== download) finish();
       else if (channel.readyState !== "open") finish(new Error("channel_closed"));
       else if (channel.bufferedAmount <= maximumBufferedBytes) finish();
@@ -1410,6 +1439,7 @@ async function waitForSendCapacity(
     channel.bufferedAmountLowThreshold = 0;
     await new Promise<void>((resolve, reject) => {
       let settled = false;
+      let poll: ReturnType<typeof setTimeout> | undefined;
       const onLow = () => finish();
       const onBudget = () => finish();
       const onClose = () => finish(new Error("channel_closed"));
@@ -1417,6 +1447,7 @@ async function waitForSendCapacity(
         if (settled) return;
         settled = true;
         sendBudget.waiters.delete(onBudget);
+        if (poll) clearTimeout(poll);
         channel.removeEventListener("bufferedamountlow", onLow);
         channel.removeEventListener("close", onClose);
         if (error) reject(error);
@@ -1425,6 +1456,7 @@ async function waitForSendCapacity(
       sendBudget.waiters.add(onBudget);
       channel.addEventListener("bufferedamountlow", onLow, { once: true });
       channel.addEventListener("close", onClose, { once: true });
+      poll = setTimeout(onLow, 50);
       if (channel.readyState !== "open") finish(new Error("channel_closed"));
       else if (channel.bufferedAmount + sendBudget.reservedBytes + nextMessageBytes <= maximumBufferedBytes) finish();
     });

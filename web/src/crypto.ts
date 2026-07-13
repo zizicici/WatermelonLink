@@ -65,8 +65,9 @@ export class SignalCipher {
     );
   }
 
-  async encrypt(value: unknown): Promise<string> {
-    const iv = crypto.getRandomValues(new Uint8Array(12));
+  async encrypt(value: unknown, fixedIV?: Uint8Array): Promise<string> {
+    const iv = fixedIV ? new Uint8Array(fixedIV) : crypto.getRandomValues(new Uint8Array(12));
+    if (iv.byteLength !== 12) throw new Error("Invalid AES-GCM IV");
     const plaintext = encoder.encode(JSON.stringify(value));
     const ciphertext = await crypto.subtle.encrypt(
       { name: "AES-GCM", iv: asArrayBuffer(iv), additionalData: asArrayBuffer(this.sendAdditionalData) },

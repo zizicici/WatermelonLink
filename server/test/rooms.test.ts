@@ -190,6 +190,24 @@ test("unpaired disconnect immediately releases the room and network slot", () =>
   registry.close();
 });
 
+test("paired disconnect notifies the remaining peer before closing", () => {
+  const registry = new RoomRegistry(limits());
+  const browser = socket();
+  const phone = socket();
+  registry.attach(asWebSocket(browser), claims("paired-left"), "browser", "203.0.113.1");
+  registry.attach(asWebSocket(phone), claims("paired-left"), "phone", "203.0.113.2");
+
+  browser.close();
+
+  assert.deepEqual(phone.sent.map((value) => JSON.parse(value)), [
+    { kind: "control", event: "peer_joined" },
+    { kind: "control", event: "peer_left" },
+  ]);
+  assert.equal(phone.closed.at(-1)?.reason, "peer_left");
+  assert.deepEqual(registry.stats(), { rooms: 0, connections: 0 });
+  registry.close();
+});
+
 test("unpaired room quotas preserve room capacity for new networks without blocking a second peer", () => {
   const registry = new RoomRegistry(limits({
     maxRooms: 4,
