@@ -26,60 +26,93 @@ export async function sha256(value: Uint8Array): Promise<string> {
   return toBase64URL(await crypto.subtle.digest("SHA-256", asArrayBuffer(value)));
 }
 
+export async function capabilityHash(secret: Uint8Array): Promise<string> {
+  const prefix = encoder.encode("watermelon-link-capability-v1:");
+  const value = new Uint8Array(prefix.byteLength + secret.byteLength);
+  value.set(prefix);
+  value.set(secret, prefix.byteLength);
+  return sha256(value);
+}
+
 export class SignalCipher {
   private constructor(
-    private readonly key: CryptoKey,
-    private readonly additionalData: Uint8Array
+    private readonly sendKey: CryptoKey,
+    private readonly receiveKey: CryptoKey,
+    private readonly sendAdditionalData: Uint8Array,
+    private readonly receiveAdditionalData: Uint8Array
   ) {}
 
-  static async create(secret: Uint8Array, sessionID: string): Promise<SignalCipher> {
+  static async create(secret: Uint8Array, sessionID: string, role: "browser" | "phone"): Promise<SignalCipher> {
     const material = await crypto.subtle.importKey("raw", asArrayBuffer(secret), "HKDF", false, ["deriveKey"]);
-    const key = await crypto.subtle.deriveKey(
-      {
+    const derive = (direction: string) => crypto.subtle.deriveKey({
         name: "HKDF",
         hash: "SHA-256",
         salt: encoder.encode(sessionID),
-        info: encoder.encode("watermelon-link-signaling-v1")
+        info: encoder.encode(`watermelon-link-signaling-v1:${direction}`)
       },
       material,
       { name: "AES-GCM", length: 256 },
       false,
       ["encrypt", "decrypt"]
     );
-    return new SignalCipher(key, encoder.encode(sessionID));
+    const sendDirection = role === "browser" ? "browser-to-phone" : "phone-to-browser";
+    const receiveDirection = role === "browser" ? "phone-to-browser" : "browser-to-phone";
+    return new SignalCipher(
+      await derive(sendDirection),
+      await derive(receiveDirection),
+      encoder.encode(`watermelon-link-v1:${sessionID}:${sendDirection}`),
+      encoder.encode(`watermelon-link-v1:${sessionID}:${receiveDirection}`)
+    );
   }
 
   async encrypt(value: unknown): Promise<string> {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const plaintext = encoder.encode(JSON.stringify(value));
     const ciphertext = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv: asArrayBuffer(iv), additionalData: asArrayBuffer(this.additionalData) },
-      this.key,
+      { name: "AES-GCM", iv: asArrayBuffer(iv), additionalData: asArrayBuffer(this.sendAdditionalData) },
+      this.sendKey,
       plaintext
     );
     return `${toBase64URL(iv)}.${toBase64URL(ciphertext)}`;
   }
 
   async decrypt<T>(value: string): Promise<T> {
-    const [ivValue, ciphertextValue] = value.split(".");
-    if (!ivValue || !ciphertextValue) throw new Error("Malformed encrypted signal");
+    const components = value.split(".");
+    if (components.length !== 2 || !components[0] || !components[1]) throw new Error("Malformed encrypted signal");
+    const [ivValue, ciphertextValue] = components;
     const plaintext = await crypto.subtle.decrypt(
       {
         name: "AES-GCM",
         iv: asArrayBuffer(fromBase64URL(ivValue)),
-        additionalData: asArrayBuffer(this.additionalData)
+        additionalData: asArrayBuffer(this.receiveAdditionalData)
       },
-      this.key,
+      this.receiveKey,
       asArrayBuffer(fromBase64URL(ciphertextValue))
     );
     return JSON.parse(decoder.decode(plaintext)) as T;
   }
 }
 
-export async function authenticationMAC(secret: Uint8Array, nonce: string): Promise<string> {
+async function hmac(secret: Uint8Array, value: string): Promise<string> {
   const key = await crypto.subtle.importKey("raw", asArrayBuffer(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const data = encoder.encode(`watermelon-link-data-v1:${nonce}`);
+  const data = encoder.encode(value);
   return toBase64URL(await crypto.subtle.sign("HMAC", key, asArrayBuffer(data)));
+}
+
+export function authenticationMAC(secret: Uint8Array, sessionID: string, nonce: string): Promise<string> {
+  return hmac(secret, `watermelon-link-auth-v1:${sessionID}:phone-to-browser:${nonce}`);
+}
+
+export function authenticationConfirmationMAC(
+  secret: Uint8Array,
+  sessionID: string,
+  nonce: string,
+  folderName: string,
+  browserNodeID: string,
+  reclaimBrowserNodeIDs: string[],
+  uploadChunkBytes: number
+): Promise<string> {
+  return hmac(secret, `watermelon-link-auth-v1:${sessionID}:browser-to-phone:${nonce}:${folderName}:${browserNodeID}:${reclaimBrowserNodeIDs.join(",")}:${uploadChunkBytes}`);
 }
 
 export function timingSafeEqual(left: string, right: string): boolean {

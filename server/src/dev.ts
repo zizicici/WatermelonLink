@@ -1,7 +1,9 @@
 import { createServer as createViteServer } from "vite";
 import { loadConfig } from "./config.js";
+import { installProcessSafetyHandlers } from "./process-safety.js";
 import { createLinkServer } from "./server.js";
 
+installProcessSafetyHandlers();
 const config = loadConfig();
 const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
 const server = createLinkServer(config, vite.middlewares);

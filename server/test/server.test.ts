@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import type { AddressInfo } from "node:net";
+import { connect as connectTCP, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { WebSocket } from "ws";
 import type { LinkConfig } from "../src/config.js";
-import { createLinkServer } from "../src/server.js";
+import { createLinkServer, pipeStaticFile } from "../src/server.js";
 
 function testConfig(): LinkConfig {
   return {
@@ -16,14 +17,22 @@ function testConfig(): LinkConfig {
     production: false,
     trustProxy: false,
     ticketSigningSecret: "integration-test-signing-secret-123456",
-    ticketTTLSeconds: 180,
+    ticketTTLSeconds: 90,
     roomTTLSeconds: 240,
     maxRooms: 10,
-    maxConnectionsPerIP: 4,
+    maxConnectionsPerNetwork: 4,
+    maxUnpairedRoomsPerNetwork: 3,
+    reservedRoomsForNewNetworks: 1,
+    maxServerConnections: 64,
     maxSignalMessages: 16,
     maxSignalBytes: 32_768,
     maxMessageBytes: 8_192,
     ticketRequestsPerMinute: 10,
+    rawTicketRequestsPerMinute: 60,
+    websocketUpgradesPerMinute: 60,
+    websocketUpgradesGlobalPerMinute: 600,
+    turnstileRequestsPerMinute: 100,
+    turnstileMaximumConcurrent: 4,
     turnstileEnabled: false,
     turnstileSiteKey: null,
     turnstileSecretKey: null,
@@ -32,8 +41,36 @@ function testConfig(): LinkConfig {
   };
 }
 
-async function connect(url: string): Promise<{ socket: WebSocket; next: () => Promise<Record<string, unknown>> }> {
-  const socket = new WebSocket(url);
+test("static stream open errors are converted into a bounded response", async () => {
+  const source = new EventEmitter() as EventEmitter & { pipe: (destination: unknown) => unknown };
+  source.pipe = (destination) => {
+    queueMicrotask(() => source.emit("error", new Error("open failed")));
+    return destination;
+  };
+  const headers = new Map<string, string>();
+  const response = {
+    headersSent: false,
+    writableEnded: false,
+    statusCode: 0,
+    setHeader: (name: string, value: string) => headers.set(name, value),
+    end() { this.writableEnded = true; },
+    destroy() { this.writableEnded = true; },
+  };
+
+  pipeStaticFile(
+    "/missing-after-stat",
+    response as never,
+    (() => source) as never
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(response.statusCode, 404);
+  assert.equal(response.writableEnded, true);
+  assert.equal(headers.get("content-type"), "application/json; charset=utf-8");
+});
+
+async function connect(url: string, options?: ConstructorParameters<typeof WebSocket>[2]): Promise<{ socket: WebSocket; next: () => Promise<Record<string, unknown>> }> {
+  const socket = new WebSocket(url, options);
   const queued: Record<string, unknown>[] = [];
   const waiters: Array<(message: Record<string, unknown>) => void> = [];
   socket.on("message", (data) => {
@@ -70,9 +107,312 @@ async function issueTicket(origin: string): Promise<string> {
   });
   assert.equal(response.status, 201);
   const ticket = await response.json() as { ticket: string; expiresInSeconds: number };
-  assert.ok(ticket.expiresInSeconds > 178 && ticket.expiresInSeconds <= 180);
+  assert.ok(ticket.expiresInSeconds > 88 && ticket.expiresInSeconds <= 90);
   return ticket.ticket;
 }
+
+test("cross-site and non-JSON ticket requests do not consume the IP quota", async (context) => {
+  const config = testConfig();
+  config.ticketRequestsPerMinute = 1;
+  const server = createLinkServer(config);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const body = JSON.stringify({
+    turnstileToken: "development-bypass",
+    capabilityHash: Buffer.alloc(32, 5).toString("base64url")
+  });
+
+  const simple = await fetch(`${origin}/api/v1/tickets`, {
+    method: "POST",
+    headers: { "content-type": "text/plain", origin: "https://attacker.example" },
+    body
+  });
+  assert.equal(simple.status, 415);
+
+  const crossSite = await fetch(`${origin}/api/v1/tickets`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://attacker.example",
+      "sec-fetch-site": "cross-site"
+    },
+    body
+  });
+  assert.equal(crossSite.status, 403);
+
+  const legitimate = await fetch(`${origin}/api/v1/tickets`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body
+  });
+  assert.equal(legitimate.status, 201);
+  const exhausted = await fetch(`${origin}/api/v1/tickets`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body
+  });
+  assert.equal(exhausted.status, 429);
+});
+
+test("security policy limits WebSocket connections to the configured origin", async (context) => {
+  const config = testConfig();
+  config.publicOrigin = "https://link.watermelonbackup.com";
+  config.production = true;
+  const server = createLinkServer(config);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+
+  const response = await fetch(`http://127.0.0.1:${port}/healthz`);
+  const policy = response.headers.get("content-security-policy") ?? "";
+
+  assert.match(policy, /connect-src 'self' wss:\/\/link\.watermelonbackup\.com https:\/\/challenges\.cloudflare\.com/);
+  assert.doesNotMatch(policy, /connect-src[^;]*\sws:\s/);
+  assert.doesNotMatch(policy, /connect-src[^;]*\swss:\s/);
+});
+
+test("WebSocket upgrades accept native clients and the configured browser origin only", async (context) => {
+  const config = testConfig();
+  const server = createLinkServer(config);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const ticket = await issueTicket(origin);
+  const url = `ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`;
+
+  await assert.rejects(connect(url, { origin: "https://attacker.example" }), /403/);
+  const browser = await connect(url, { origin: config.publicOrigin });
+  assert.equal((await browser.next()).event, "waiting");
+  await new Promise<void>((resolve) => {
+    browser.socket.once("close", () => resolve());
+    browser.socket.close();
+  });
+  const native = await connect(url);
+  assert.equal((await native.next()).event, "waiting");
+  native.socket.close();
+});
+
+test("invalid WebSocket upgrades do not consume the signed-upgrade budget", async (context) => {
+  const config = testConfig();
+  config.websocketUpgradesGlobalPerMinute = 1;
+  const server = createLinkServer(config);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const ticket = await issueTicket(origin);
+
+  await assert.rejects(connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=invalid`), /401/);
+  const legitimate = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`);
+  assert.equal((await legitimate.next()).event, "waiting");
+  legitimate.socket.close();
+});
+
+test("cross-origin upgrades cannot exhaust the legitimate network budget", async (context) => {
+  const config = testConfig();
+  config.websocketUpgradesPerMinute = 2;
+  const server = createLinkServer(config);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const ticket = await issueTicket(origin);
+  const browserURL = `ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await assert.rejects(connect(browserURL, { origin: "https://attacker.example" }), /403|429/);
+  }
+
+  const browser = await connect(browserURL, { origin: config.publicOrigin });
+  assert.equal((await browser.next()).event, "waiting");
+  const browserJoined = browser.next();
+  const phone = await connect(`ws://127.0.0.1:${port}/ws/v1?role=phone&ticket=${encodeURIComponent(ticket)}`);
+  assert.equal((await phone.next()).event, "peer_joined");
+  assert.equal((await browserJoined).event, "peer_joined");
+  browser.socket.close();
+  phone.socket.close();
+});
+
+test("one ticket cannot exhaust the global signed-upgrade budget", async (context) => {
+  const config = testConfig();
+  config.websocketUpgradesGlobalPerMinute = 13;
+  const server = createLinkServer(config);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const replayedTicket = await issueTicket(origin);
+  const replayURL = `ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(replayedTicket)}`;
+  const owner = await connect(replayURL);
+  assert.equal((await owner.next()).event, "waiting");
+  for (let attempt = 0; attempt < 11; attempt += 1) {
+    const replay = await connect(replayURL);
+    const code = await new Promise<number>((resolve) => replay.socket.once("close", resolve));
+    assert.equal(code, 4409);
+  }
+  await assert.rejects(connect(replayURL), /429/);
+
+  const freshTicket = await issueTicket(origin);
+  const fresh = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(freshTicket)}`);
+  assert.equal((await fresh.next()).event, "waiting");
+  owner.socket.close();
+  fresh.socket.close();
+});
+
+test("ticket limits group IPv6 privacy addresses by network prefix", async (context) => {
+  const config = testConfig();
+  config.trustProxy = true;
+  config.ticketRequestsPerMinute = 1;
+  const server = createLinkServer(config);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const body = JSON.stringify({
+    turnstileToken: "development-bypass",
+    capabilityHash: Buffer.alloc(32, 5).toString("base64url")
+  });
+  const issue = (ip: string) => fetch(`${origin}/api/v1/tickets`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-real-ip": ip },
+    body
+  });
+
+  assert.equal((await issue("2001:db8:1:2::1")).status, 201);
+  assert.equal((await issue("2001:db8:1:2:ffff::2")).status, 429);
+  assert.equal((await issue("2001:db8:1:3::1")).status, 201);
+});
+
+test("malformed WebSocket upgrade targets cannot terminate the server", async (context) => {
+  const server = createLinkServer(testConfig());
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const response = await new Promise<string>((resolve, reject) => {
+    const socket = connectTCP(port, "127.0.0.1");
+    let received = "";
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("malformed upgrade response timeout"));
+    }, 2_000);
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => { received += chunk; });
+    socket.once("error", reject);
+    socket.once("close", () => {
+      clearTimeout(timer);
+      resolve(received);
+    });
+    socket.once("connect", () => {
+      socket.write("GET //[ HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n");
+    });
+  });
+
+  assert.match(response, /^HTTP\/1\.1 400 Bad Request/);
+  assert.deepEqual(
+    await fetch(`http://127.0.0.1:${port}/healthz`).then((value) => value.json()),
+    { ok: true, rooms: 0, connections: 0 }
+  );
+});
+
+test("a rejected upgrade contains malformed head frames without crashing the server", async (context) => {
+  const config = testConfig();
+  config.maxConnectionsPerNetwork = 1;
+  const server = createLinkServer(config);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const occupyingTicket = await issueTicket(origin);
+  const rejectedTicket = await issueTicket(origin);
+  const occupying = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(occupyingTicket)}`);
+  context.after(() => occupying.socket.terminate());
+  assert.equal((await occupying.next()).event, "waiting");
+
+  await new Promise<void>((resolve, reject) => {
+    const socket = connectTCP(port, "127.0.0.1");
+    socket.resume();
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("rejected malformed upgrade timeout"));
+    }, 2_000);
+    socket.once("error", (error) => {
+      if ((error as NodeJS.ErrnoException).code !== "ECONNRESET") reject(error);
+    });
+    socket.once("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    socket.once("connect", () => {
+      const headers = [
+        `GET /ws/v1?role=browser&ticket=${encodeURIComponent(rejectedTicket)} HTTP/1.1`,
+        `Host: 127.0.0.1:${port}`,
+        "Connection: Upgrade",
+        "Upgrade: websocket",
+        "Sec-WebSocket-Version: 13",
+        `Sec-WebSocket-Key: ${Buffer.alloc(16, 7).toString("base64")}`,
+        "",
+        "",
+      ].join("\r\n");
+      socket.write(Buffer.concat([Buffer.from(headers), Buffer.from([0x81, 0x01, 0x78])]));
+    });
+  });
+
+  assert.equal((await fetch(`${origin}/healthz`).then((response) => response.json()) as { ok: boolean }).ok, true);
+  occupying.socket.close();
+});
+
+test("resetting rejected upgrade sockets cannot terminate the server", async (context) => {
+  const server = createLinkServer(testConfig());
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const request = [
+    "GET /ws/v1?role=browser&ticket=invalid HTTP/1.1",
+    `Host: 127.0.0.1:${port}`,
+    "Connection: Upgrade",
+    "Upgrade: websocket",
+    "Sec-WebSocket-Version: 13",
+    `Sec-WebSocket-Key: ${Buffer.alloc(16, 9).toString("base64")}`,
+    "Origin: https://attacker.example",
+    "",
+    "",
+  ].join("\r\n");
+
+  for (let batch = 0; batch < 20; batch += 1) {
+    await Promise.all(Array.from({ length: 20 }, () => new Promise<void>((resolve, reject) => {
+      const socket = connectTCP(port, "127.0.0.1");
+      const timer = setTimeout(() => {
+        socket.destroy();
+        reject(new Error("reset upgrade timeout"));
+      }, 2_000);
+      const finish = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      socket.once("error", (error) => {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ECONNRESET" || code === "EPIPE") finish();
+        else reject(error);
+      });
+      socket.once("close", finish);
+      socket.once("connect", () => {
+        socket.write(request, () => socket.resetAndDestroy());
+      });
+    })));
+  }
+
+  assert.deepEqual(
+    await fetch(`${origin}/healthz`).then((response) => response.json()),
+    { ok: true, rooms: 0, connections: 0 }
+  );
+  const ticket = await issueTicket(origin);
+  const browser = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`);
+  assert.equal((await browser.next()).event, "waiting");
+  browser.socket.close();
+});
 
 test("ticket creation allocates no room and two peers can relay opaque signaling", async (context) => {
   const server = createLinkServer(testConfig());
@@ -104,6 +444,43 @@ test("ticket creation allocates no room and two peers can relay opaque signaling
   const replay = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`);
   const replayCode = await new Promise<number>((resolve) => replay.socket.once("close", resolve));
   assert.equal(replayCode, 4409);
+});
+
+test("WebSocket control frames are answered once and bounded per connection", async (context) => {
+  const server = createLinkServer(testConfig());
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context.after(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const ticket = await issueTicket(origin);
+  const peer = await connect(`ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`);
+  assert.equal((await peer.next()).event, "waiting");
+
+  let pongCount = 0;
+  peer.socket.on("pong", () => { pongCount += 1; });
+  peer.socket.ping();
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("pong timeout")), 2_000);
+    peer.socket.once("pong", () => {
+      clearTimeout(timer);
+      setTimeout(resolve, 20);
+    });
+  });
+  assert.equal(pongCount, 1);
+
+  const closed = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("control flood close timeout")), 2_000);
+    peer.socket.once("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+  for (let index = 0; index < 64; index += 1) peer.socket.ping();
+  await closed;
+  assert.deepEqual(
+    await fetch(`${origin}/healthz`).then((response) => response.json()),
+    { ok: true, rooms: 0, connections: 0 }
+  );
 });
 
 test("complete is accepted only from the browser after both peers join", async (context) => {
@@ -180,8 +557,16 @@ test("only fingerprinted bundles receive immutable caching", async (context) => 
   const bundle = await fetch(`${origin}/assets/index-review.js`);
   const icon = await fetch(`${origin}/assets/app-icon.png`);
   const association = await fetch(`${origin}/.well-known/apple-app-site-association`);
+  const publicConfig = await fetch(`${origin}/api/v1/config`);
+  const pairWithSlash = await fetch(`${origin}/pair/`);
+  const localizedPairWithSlash = await fetch(`${origin}/zh-Hans/pair/`);
+  const unsupportedLocalizedPair = await fetch(`${origin}/it/pair`);
   assert.equal(html.headers.get("cache-control"), "no-cache");
   assert.equal(bundle.headers.get("cache-control"), "public, max-age=31536000, immutable");
   assert.equal(icon.headers.get("cache-control"), "public, max-age=3600");
   assert.equal(association.headers.get("content-type"), "application/json; charset=utf-8");
+  assert.equal(pairWithSlash.status, 200);
+  assert.equal(localizedPairWithSlash.status, 200);
+  assert.equal(unsupportedLocalizedPair.status, 404);
+  assert.equal((await publicConfig.json() as { protocolVersion: number }).protocolVersion, 1);
 });

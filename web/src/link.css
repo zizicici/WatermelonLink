@@ -118,6 +118,12 @@
   margin-top: 4px;
 }
 
+.button > .ui-icon {
+  width: 20px;
+  height: 20px;
+  transform: translateY(-0.5px);
+}
+
 .folder-actions {
   grid-column: 2;
   min-width: 0;
@@ -125,6 +131,13 @@
   align-items: center;
   gap: 8px;
   margin-top: 4px;
+}
+
+.preflight-result {
+  grid-column: 2;
+  justify-self: start;
+  margin-top: 4px;
+  cursor: default;
 }
 
 .folder-selected {
@@ -162,6 +175,15 @@ button.button {
   color: var(--md-coral);
   font-size: 14px;
   font-weight: 500;
+}
+
+.step-error {
+  grid-column: 2;
+  margin: 2px 0 0;
+  color: var(--md-coral);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .link-panel-footer {

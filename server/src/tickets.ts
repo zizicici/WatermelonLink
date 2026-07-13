@@ -15,16 +15,26 @@ const signatureBytes = 16;
 const ticketBytes = payloadBytes + signatureBytes;
 const hashPattern = /^[A-Za-z0-9_-]{43}$/;
 
+export function isCanonicalCapabilityHash(capabilityHash: string): boolean {
+  if (!hashPattern.test(capabilityHash)) return false;
+  const capability = Buffer.from(capabilityHash, "base64url");
+  return capability.byteLength === 32 && capability.toString("base64url") === capabilityHash;
+}
+
 export class TicketService {
+  private readonly signingKey: Buffer;
+
   constructor(
-    private readonly secret: string,
-    private readonly ttlSeconds: number
-  ) {}
+    secret: string,
+    private readonly ttlSeconds: number,
+    instanceNonce: Buffer = randomBytes(32)
+  ) {
+    this.signingKey = createHmac("sha256", secret).update("watermelon-link-ticket-instance-v1").update(instanceNonce).digest();
+  }
 
   issue(capabilityHash: string, now = Date.now()): { ticket: string; claims: TicketClaims } {
-    if (!hashPattern.test(capabilityHash)) throw new Error("invalid_capability_hash");
+    if (!isCanonicalCapabilityHash(capabilityHash)) throw new Error("invalid_capability_hash");
     const capability = Buffer.from(capabilityHash, "base64url");
-    if (capability.byteLength !== 32 || capability.toString("base64url") !== capabilityHash) throw new Error("invalid_capability_hash");
 
     const session = randomBytes(16);
     const issuedAt = Math.floor(now / 1_000);
@@ -70,6 +80,6 @@ export class TicketService {
   }
 
   private sign(payload: Buffer): Buffer {
-    return createHmac("sha256", this.secret).update(payload).digest().subarray(0, signatureBytes);
+    return createHmac("sha256", this.signingKey).update(payload).digest().subarray(0, signatureBytes);
   }
 }

@@ -23,9 +23,12 @@ export class FixedWindowRateLimiter {
 
   private makeSpace(now: number): void {
     if (this.entries.size < this.maxKeys) return;
+    let inspected = 0;
     for (const [key, entry] of this.entries) {
       if (entry.resetAt <= now) this.entries.delete(key);
       if (this.entries.size < this.maxKeys) return;
+      inspected += 1;
+      if (inspected >= 32) break;
     }
     const oldest = this.entries.keys().next().value as string | undefined;
     if (oldest) this.entries.delete(oldest);

@@ -12,8 +12,80 @@
             "comment": "Opens a Watermelon Link pairing URL in Watermelon Backup"
           },
           {
-            "/": "/*/pair",
-            "comment": "Opens a localized Watermelon Link pairing URL in Watermelon Backup"
+            "/": "/pair/"
+          },
+          {
+            "/": "/de/pair"
+          },
+          {
+            "/": "/de/pair/"
+          },
+          {
+            "/": "/es/pair"
+          },
+          {
+            "/": "/es/pair/"
+          },
+          {
+            "/": "/es-419/pair"
+          },
+          {
+            "/": "/es-419/pair/"
+          },
+          {
+            "/": "/fr/pair"
+          },
+          {
+            "/": "/fr/pair/"
+          },
+          {
+            "/": "/ja/pair"
+          },
+          {
+            "/": "/ja/pair/"
+          },
+          {
+            "/": "/ko/pair"
+          },
+          {
+            "/": "/ko/pair/"
+          },
+          {
+            "/": "/pt-BR/pair"
+          },
+          {
+            "/": "/pt-BR/pair/"
+          },
+          {
+            "/": "/pt-PT/pair"
+          },
+          {
+            "/": "/pt-PT/pair/"
+          },
+          {
+            "/": "/ru/pair"
+          },
+          {
+            "/": "/ru/pair/"
+          },
+          {
+            "/": "/uk/pair"
+          },
+          {
+            "/": "/uk/pair/"
+          },
+          {
+            "/": "/zh-Hans/pair"
+          },
+          {
+            "/": "/zh-Hans/pair/"
+          },
+          {
+            "/": "/zh-Hant/pair"
+          },
+          {
+            "/": "/zh-Hant/pair/",
+            "comment": "Opens a supported localized pairing URL in Watermelon Backup"
           }
         ]
       }

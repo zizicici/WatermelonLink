@@ -3,9 +3,12 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { extname, join, normalize } from "node:path";
 import { WebSocketServer } from "ws";
 import type { LinkConfig } from "./config.js";
+import { normalizePublicOrigin } from "./config.js";
+import { clientNetworkPrefix, isPlausibleTurnstileToken, resolveClientAddress } from "./network-security.js";
 import { FixedWindowRateLimiter } from "./rate-limiter.js";
 import { RoomRegistry, type PeerRole } from "./rooms.js";
-import { TicketService } from "./tickets.js";
+import { isCanonicalCapabilityHash, TicketService } from "./tickets.js";
+import { TurnstileVerifier } from "./turnstile.js";
 
 type Middleware = (request: IncomingMessage, response: ServerResponse, next: () => void) => void;
 
@@ -20,42 +23,95 @@ const contentTypes: Record<string, string> = {
 };
 
 export function createLinkServer(config: LinkConfig, developmentMiddleware?: Middleware) {
+  const publicOrigin = normalizePublicOrigin(config.publicOrigin);
+  const websocketOrigin = new URL(publicOrigin);
+  websocketOrigin.protocol = websocketOrigin.protocol === "https:" ? "wss:" : "ws:";
   const tickets = new TicketService(config.ticketSigningSecret, config.ticketTTLSeconds);
-  const limiter = new FixedWindowRateLimiter(config.ticketRequestsPerMinute, 60_000);
+  const ticketLimiter = new FixedWindowRateLimiter(config.ticketRequestsPerMinute, 60_000);
+  const rawTicketLimiter = new FixedWindowRateLimiter(config.rawTicketRequestsPerMinute, 60_000);
+  const upgradeLimiter = new FixedWindowRateLimiter(config.websocketUpgradesPerMinute, 60_000);
+  const untrustedUpgradeLimiter = new FixedWindowRateLimiter(config.websocketUpgradesPerMinute, 60_000);
+  const ticketUpgradeLimiter = new FixedWindowRateLimiter(12, 60_000);
+  const globalUpgradeLimiter = new FixedWindowRateLimiter(config.websocketUpgradesGlobalPerMinute, 60_000, 1);
+  const turnstile = new TurnstileVerifier({
+    secretKey: config.turnstileSecretKey,
+    expectedHostname: config.turnstileExpectedHostname,
+    maximumConcurrent: config.turnstileMaximumConcurrent,
+    requestsPerMinute: config.turnstileRequestsPerMinute
+  });
   const rooms = new RoomRegistry(config);
-  const websocketServer = new WebSocketServer({ noServer: true, maxPayload: config.maxMessageBytes });
+  const websocketServerOptions = {
+    noServer: true,
+    allowSynchronousEvents: false,
+    autoPong: false,
+    maxFragments: 64,
+    maxPayload: config.maxMessageBytes
+  };
+  const websocketServer = new WebSocketServer(websocketServerOptions);
 
   const server = createServer((request, response) => {
-    setSecurityHeaders(response, config.production);
+    setSecurityHeaders(response, config.production, websocketOrigin.origin);
     void route(request, response).catch((error: unknown) => {
       console.error("request_failed", error instanceof Error ? error.message : error);
       if (!response.headersSent) json(response, 500, { error: "internal_error" });
       else response.end();
     });
   });
+  server.headersTimeout = 10_000;
+  server.requestTimeout = 15_000;
+  server.keepAliveTimeout = 5_000;
+  server.maxRequestsPerSocket = 100;
+  server.maxHeadersCount = 64;
+  server.maxConnections = config.maxServerConnections;
 
   async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const url = new URL(request.url ?? "/", config.publicOrigin);
+    const url = new URL(request.url ?? "/", publicOrigin);
     if (request.method === "GET" && url.pathname === "/healthz") {
       return json(response, 200, { ok: true, ...rooms.stats() });
     }
     if (request.method === "GET" && url.pathname === "/api/v1/config") {
       return json(response, 200, {
-        protocolVersion: 2,
-        publicOrigin: config.publicOrigin,
+        protocolVersion: 1,
+        publicOrigin,
         turnstileEnabled: config.turnstileEnabled,
         turnstileSiteKey: config.turnstileEnabled ? config.turnstileSiteKey : null
       });
     }
     if (request.method === "POST" && url.pathname === "/api/v1/tickets") {
+      if (!isJSONRequest(request)) {
+        request.resume();
+        return json(response, 415, { error: "unsupported_media_type" });
+      }
+      if (!isTrustedTicketRequest(request, publicOrigin)) {
+        request.resume();
+        return json(response, 403, { error: "cross_site_request" });
+      }
       const ip = clientIP(request, config.trustProxy);
-      if (!limiter.consume(ip)) return json(response, 429, { error: "rate_limited" });
+      const network = clientNetworkPrefix(ip);
+      if (!rawTicketLimiter.consume(network)) return retryJSON(response, 429, 60, { error: "rate_limited" });
       const body = await readJSON(request, 8_192);
-      if (!body || typeof body.capabilityHash !== "string" || typeof body.turnstileToken !== "string") {
+      if (!body || typeof body.capabilityHash !== "string" || typeof body.turnstileToken !== "string" ||
+          !isCanonicalCapabilityHash(body.capabilityHash) ||
+          body.turnstileToken.length > 2_048 ||
+          (config.turnstileEnabled && !isPlausibleTurnstileToken(body.turnstileToken))) {
         return json(response, 400, { error: "invalid_request" });
       }
-      if (config.turnstileEnabled && !(await verifyTurnstile(config, body.turnstileToken, ip))) {
-        return json(response, 403, { error: "human_verification_failed" });
+      if (!ticketLimiter.consume(network)) return retryJSON(response, 429, 60, { error: "rate_limited" });
+      if (config.turnstileEnabled) {
+        const abort = new AbortController();
+        const abortVerification = () => abort.abort();
+        request.once("aborted", abortVerification);
+        response.once("close", abortVerification);
+        const verification = await turnstile.verify(body.turnstileToken, ip, abort.signal);
+        request.off("aborted", abortVerification);
+        response.off("close", abortVerification);
+        if (verification === "busy") {
+          return retryJSON(response, 503, 5, { error: "human_verification_unavailable" });
+        }
+        if (verification === "unavailable") {
+          return retryJSON(response, 503, 5, { error: "human_verification_unavailable" });
+        }
+        if (verification !== "verified") return json(response, 403, { error: "human_verification_failed" });
       }
       try {
         const issued = tickets.issue(body.capabilityHash);
@@ -78,17 +134,60 @@ export function createLinkServer(config: LinkConfig, developmentMiddleware?: Mid
   }
 
   server.on("upgrade", (request, socket, head) => {
-    const url = new URL(request.url ?? "/", config.publicOrigin);
+    socket.on("error", () => socket.destroy());
+    const rejectUpgrade = (response: string) => {
+      try {
+        socket.end(response);
+      } catch {
+        socket.destroy();
+      }
+    };
+    const ip = clientIP(request, config.trustProxy);
+    const network = clientNetworkPrefix(ip);
+    if (!isTrustedWebSocketRequest(request, publicOrigin)) {
+      rejectUpgrade(untrustedUpgradeLimiter.consume(network)
+        ? "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"
+        : "HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nRetry-After: 60\r\n\r\n");
+      return;
+    }
+    if (!upgradeLimiter.consume(network)) {
+      rejectUpgrade("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nRetry-After: 60\r\n\r\n");
+      return;
+    }
+    let url: URL;
+    try {
+      url = new URL(request.url ?? "/", publicOrigin);
+    } catch {
+      rejectUpgrade("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n");
+      return;
+    }
     const role = url.searchParams.get("role");
     const claims = tickets.verify(url.searchParams.get("ticket") ?? "");
     if (url.pathname !== "/ws/v1" || (role !== "browser" && role !== "phone") || !claims) {
-      socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
-      socket.destroy();
+      rejectUpgrade("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
       return;
     }
-    websocketServer.handleUpgrade(request, socket, head, (websocket) => {
-      rooms.attach(websocket, claims, role as PeerRole, clientIP(request, config.trustProxy));
-    });
+    if (!ticketUpgradeLimiter.consume(claims.sessionID)) {
+      rejectUpgrade("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nRetry-After: 60\r\n\r\n");
+      return;
+    }
+    if (!globalUpgradeLimiter.consume("global")) {
+      rejectUpgrade("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nRetry-After: 60\r\n\r\n");
+      return;
+    }
+    try {
+      websocketServer.handleUpgrade(request, socket, head, (websocket) => {
+        const rejectError = () => {
+          try { websocket.terminate(); } catch {}
+        };
+        websocket.once("error", rejectError);
+        if (rooms.attach(websocket, claims, role as PeerRole, network)) {
+          websocket.off("error", rejectError);
+        }
+      });
+    } catch {
+      socket.destroy();
+    }
   });
 
   server.on("close", () => {
@@ -98,30 +197,38 @@ export function createLinkServer(config: LinkConfig, developmentMiddleware?: Mid
   return server;
 }
 
-function clientIP(request: IncomingMessage, trustProxy: boolean): string {
-  if (trustProxy) {
-    const forwarded = request.headers["x-real-ip"];
-    if (typeof forwarded === "string" && forwarded.length <= 64) return forwarded;
-  }
-  return request.socket.remoteAddress ?? "unknown";
+function isJSONRequest(request: IncomingMessage): boolean {
+  const contentType = request.headers["content-type"];
+  return typeof contentType === "string" && contentType.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
 }
 
-async function verifyTurnstile(config: LinkConfig, token: string, ip: string): Promise<boolean> {
-  if (!config.turnstileSecretKey || token.length > 2_048) return false;
-  const form = new URLSearchParams({ secret: config.turnstileSecretKey, response: token, remoteip: ip });
+function isTrustedTicketRequest(request: IncomingMessage, publicOrigin: string): boolean {
+  const fetchSite = request.headers["sec-fetch-site"];
+  if (Array.isArray(fetchSite)) return false;
+  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") return false;
+  const origin = request.headers.origin;
+  if (Array.isArray(origin)) return false;
+  if (!origin) return true;
   try {
-    const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: form,
-      signal: AbortSignal.timeout(5_000)
-    });
-    const result = await response.json() as { success?: boolean; action?: string; hostname?: string };
-    return result.success === true && result.action === "create_link" &&
-      (!config.turnstileExpectedHostname || result.hostname === config.turnstileExpectedHostname);
+    return normalizePublicOrigin(origin) === publicOrigin;
   } catch {
     return false;
   }
+}
+
+function isTrustedWebSocketRequest(request: IncomingMessage, publicOrigin: string): boolean {
+  const origin = request.headers.origin;
+  if (Array.isArray(origin)) return false;
+  if (!origin) return true;
+  try {
+    return normalizePublicOrigin(origin) === publicOrigin;
+  } catch {
+    return false;
+  }
+}
+
+function clientIP(request: IncomingMessage, trustProxy: boolean): string {
+  return resolveClientAddress(request.socket.remoteAddress, request.headers["x-real-ip"], trustProxy);
 }
 
 async function readJSON(request: IncomingMessage, maximumBytes: number): Promise<Record<string, unknown> | null> {
@@ -130,7 +237,10 @@ async function readJSON(request: IncomingMessage, maximumBytes: number): Promise
   for await (const chunk of request) {
     const buffer = Buffer.from(chunk as Uint8Array);
     size += buffer.byteLength;
-    if (size > maximumBytes) return null;
+    if (size > maximumBytes) {
+      request.resume();
+      return null;
+    }
     chunks.push(buffer);
   }
   try { return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>; } catch { return null; }
@@ -138,7 +248,7 @@ async function readJSON(request: IncomingMessage, maximumBytes: number): Promise
 
 function serveStatic(root: string, pathname: string, headOnly: boolean, response: ServerResponse): void {
   const localizedPage = /^\/(?:zh-Hans|zh-Hant|ja|ko|de|fr|es|es-419|pt-BR|pt-PT|ru|uk)(?:\/pair)?\/?$/.test(pathname);
-  const requested = pathname === "/" || pathname === "/pair" || localizedPage ? "index.html" : pathname.slice(1);
+  const requested = pathname === "/" || pathname === "/pair" || pathname === "/pair/" || localizedPage ? "index.html" : pathname.slice(1);
   const safePath = normalize(requested).replace(/^(\.\.(\/|\\|$))+/, "");
   const file = join(root, safePath);
   try {
@@ -152,14 +262,27 @@ function serveStatic(root: string, pathname: string, headOnly: boolean, response
       response.end();
       return;
     }
-    createReadStream(file).pipe(response);
+    pipeStaticFile(file, response);
   } catch {
     json(response, 404, { error: "not_found" });
   }
 }
 
-function setSecurityHeaders(response: ServerResponse, production: boolean): void {
-  response.setHeader("content-security-policy", "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss: https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+export function pipeStaticFile(
+  file: string,
+  response: ServerResponse,
+  openFile: typeof createReadStream = createReadStream
+): void {
+  const source = openFile(file);
+  source.once("error", () => {
+    if (!response.headersSent && !response.writableEnded) json(response, 404, { error: "not_found" });
+    else response.destroy();
+  });
+  source.pipe(response);
+}
+
+function setSecurityHeaders(response: ServerResponse, production: boolean, websocketOrigin: string): void {
+  response.setHeader("content-security-policy", `default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ${websocketOrigin} https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
   response.setHeader("cross-origin-opener-policy", "same-origin");
   response.setHeader("cross-origin-resource-policy", "same-origin");
   response.setHeader("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
@@ -169,9 +292,14 @@ function setSecurityHeaders(response: ServerResponse, production: boolean): void
 }
 
 function json(response: ServerResponse, status: number, value: unknown): void {
-  if (response.writableEnded) return;
+  if (response.writableEnded || response.destroyed) return;
   response.statusCode = status;
   response.setHeader("content-type", "application/json; charset=utf-8");
   response.setHeader("cache-control", "no-store");
   response.end(JSON.stringify(value));
+}
+
+function retryJSON(response: ServerResponse, status: number, seconds: number, value: unknown): void {
+  response.setHeader("retry-after", String(seconds));
+  json(response, status, value);
 }

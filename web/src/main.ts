@@ -1,10 +1,18 @@
 import QRCode from "qrcode";
 import "./brand.css";
 import "./link.css";
-import { authenticationMAC, randomSecret, sha256, SignalCipher, timingSafeEqual, toBase64URL } from "./crypto";
-import { htmlLanguage, localePath, resolveLocale, translator, type Locale, type MessageKey } from "./i18n";
-import { allowsLocalICECandidate, filterLocalICECandidates } from "./local-network";
-import { installFileSystemNode } from "./file-system-node";
+import { authenticationConfirmationMAC, authenticationMAC, capabilityHash, randomSecret, SignalCipher, timingSafeEqual, toBase64URL } from "./crypto";
+import { htmlLanguage, isPairingPath, localePath, resolveLocale, translator, type Locale, type MessageKey } from "./i18n";
+import {
+  allowsLocalICECandidate,
+  filterLocalICECandidates,
+  localICECandidateDiagnosticLabel,
+  localICECandidateStatistics
+} from "./local-network";
+import { installFileSystemNodeController, type FileSystemNodeController } from "./file-system-node";
+import { BrowserNodeInUseError, BrowserNodeLease } from "./browser-node-receipts";
+import { uploadChunkBytesForMaxMessage } from "./upload-chunk-policy";
+import { runBrowserPreflight, type BrowserPreflightResult } from "./browser-preflight";
 
 type PublicConfig = {
   protocolVersion: number;
@@ -31,11 +39,15 @@ type SignalMessage =
   | { type: "ice"; candidate: RTCIceCandidateInit };
 
 type ConnectionState = "idle" | "preparing" | "waiting" | "negotiating" | "connected" | "error";
+type BrowserPreflightState = "unchecked" | "checking" | "ready" | "blocked" | "unsupported";
 
+const protocolVersion = 1;
 const locale = resolveLocale();
 let t = translator(locale);
 let directoryHandle: FileSystemDirectoryHandle | null = null;
 let state: ConnectionState = "idle";
+let browserPreflightState: BrowserPreflightState = "unchecked";
+let browserPreflightError: MessageKey | null = null;
 let socket: WebSocket | null = null;
 let peerConnection: RTCPeerConnection | null = null;
 let dataChannel: RTCDataChannel | null = null;
@@ -53,16 +65,23 @@ let outboundSignalQueue: Promise<void> = Promise.resolve();
 let pendingLocalCandidates: RTCIceCandidateInit[] = [];
 let pendingRemoteCandidates: RTCIceCandidateInit[] = [];
 let localDescriptionSent = false;
-let disposeFileSystemNode: (() => void) | null = null;
+let fileSystemNodeController: FileSystemNodeController | null = null;
+let browserNodeLease: BrowserNodeLease | null = null;
+let browserNodeCleanup: Promise<void> | null = null;
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
+
+function linkDiagnostic(event: string, details?: Record<string, unknown>): void {
+  if (details) console.info(`[WatermelonLink] ${event}`, details);
+  else console.info(`[WatermelonLink] ${event}`);
+}
 
 function escapeHTML(value: string): string {
   return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character);
 }
 
 function render(): void {
-  if (location.pathname.endsWith("/pair")) {
+  if (isPairingPath(location.pathname)) {
     renderHandoff();
     return;
   }
@@ -81,7 +100,7 @@ function render(): void {
               <h1 id="connect-title">${escapeHTML(t("panelTitle"))}</h1>
             </div>
             <div id="connection-content">${connectionContent()}</div>
-            <p class="link-panel-footer">${escapeHTML(t("connectDetail"))}</p>
+            <p class="link-panel-footer">${escapeHTML(t("connectDetail"))}<br>${escapeHTML(t("singleWriterDetail"))}</p>
           </section>
         </div>
       </section>
@@ -101,6 +120,7 @@ function iconSprite(): string {
       <symbol id="icon-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L11 4.93"></path><path d="M14 11a5 5 0 0 0-7.07 0l-2.12 2.12a5 5 0 0 0 7.07 7.07L13 19.07"></path></symbol>
       <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"></path></symbol>
       <symbol id="icon-edit" viewBox="0 0 24 24"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"></path></symbol>
+      <symbol id="icon-diagnostic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M6.5 12h3l1.6-4 2.5 8 1.7-4H18"></path></symbol>
     </svg>
   `;
 }
@@ -178,7 +198,7 @@ function connectionContent(): string {
         <div class="pairing-copy">
           <h3>${escapeHTML(t("waitingTitle"))}</h3>
           <p>${escapeHTML(t("waitingDetail"))}</p>
-          <p class="expiry"><span class="pulse-dot"></span>${escapeHTML(t("expires"))} <strong id="expiry-value">03:00</strong></p>
+          <p class="expiry"><span class="pulse-dot"></span>${escapeHTML(t("expires"))} <strong id="expiry-value">01:30</strong></p>
           <button id="cancel-button" class="button button-tonal" type="button">${escapeHTML(t("cancel"))}</button>
         </div>
       </div>
@@ -193,7 +213,7 @@ function connectionContent(): string {
         <div class="state-orbit" aria-hidden="true"><span></span></div>
         <h3>${escapeHTML(t(titleKey))}</h3>
         ${state === "connected" ? `<p>${escapeHTML(t("connectedDetail"))}</p>` : ""}
-        ${state !== "connected" ? `<button id="cancel-button" class="button button-tonal" type="button">${escapeHTML(t("cancel"))}</button>` : ""}
+        <button id="cancel-button" class="button button-tonal" type="button">${escapeHTML(t(state === "connected" ? "disconnect" : "cancel"))}</button>
         <div id="turnstile-slot" class="turnstile-slot"></div>
       </div>
     `;
@@ -201,8 +221,25 @@ function connectionContent(): string {
 
   return `
     <ol class="steps">
-      <li class="step ${directoryHandle ? "complete" : "active"}">
+      <li class="step ${browserPreflightState === "ready" ? "complete" : "active"}">
         <span class="step-number">01</span>
+        <div class="step-copy">
+          <h3>${escapeHTML(t("preflightTitle"))}</h3>
+        </div>
+        ${browserPreflightState === "ready" ? `
+          <div class="button button-tonal preflight-result" role="status">
+            <svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#icon-check"></use></svg>
+            ${escapeHTML(t("preflightReady"))}
+          </div>
+        ` : `
+          <button id="check-browser" class="button button-primary" type="button" ${browserPreflightState === "checking" ? "disabled" : ""}>
+            <svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#icon-diagnostic"></use></svg>${escapeHTML(t(browserPreflightState === "checking" ? "preflightChecking" : browserPreflightState === "unchecked" ? "preflightCheck" : "preflightRetry"))}
+          </button>
+        `}
+        ${browserPreflightError ? `<p class="step-error" role="alert">${escapeHTML(t(browserPreflightError))}</p>` : ""}
+      </li>
+      <li class="step ${browserPreflightState !== "ready" ? "disabled" : directoryHandle ? "complete" : "active"}">
+        <span class="step-number">02</span>
         <div class="step-copy">
           <h3>${escapeHTML(t("chooseTitle"))}</h3>
         </div>
@@ -217,17 +254,17 @@ function connectionContent(): string {
             </button>
           </div>
         ` : `
-          <button id="choose-folder" class="button button-primary" type="button">
+          <button id="choose-folder" class="button button-primary" type="button" ${browserPreflightState === "ready" ? "" : "disabled"}>
             <svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#icon-folder"></use></svg>${escapeHTML(t("choose"))}
           </button>
         `}
       </li>
-      <li class="step ${directoryHandle ? "active" : "disabled"}">
-        <span class="step-number">02</span>
+      <li class="step ${browserPreflightState === "ready" && directoryHandle ? "active" : "disabled"}">
+        <span class="step-number">03</span>
         <div class="step-copy">
           <h3>${escapeHTML(t("connectTitle"))}</h3>
         </div>
-        <button id="create-link" class="button button-primary" type="button" ${directoryHandle ? "" : "disabled"}>
+        <button id="create-link" class="button button-primary" type="button" ${browserPreflightState === "ready" && directoryHandle ? "" : "disabled"}>
           <svg class="ui-icon" aria-hidden="true" focusable="false"><use href="#icon-link"></use></svg>${escapeHTML(t("connect"))}
         </button>
       </li>
@@ -254,14 +291,36 @@ function bindUI(): void {
     localStorage.setItem("watermelon-link-locale", value);
     location.href = localePath(value);
   });
+  document.querySelector<HTMLButtonElement>("#check-browser")?.addEventListener("click", checkBrowser);
   document.querySelector<HTMLButtonElement>("#choose-folder")?.addEventListener("click", chooseFolder);
   document.querySelector<HTMLButtonElement>("#create-link")?.addEventListener("click", createLink);
   document.querySelector<HTMLButtonElement>("#cancel-button")?.addEventListener("click", cancelConnection);
   if (state === "waiting") void drawQRCode();
 }
 
+async function checkBrowser(): Promise<void> {
+  if ((state !== "idle" && state !== "error") || browserPreflightState === "checking") return;
+  browserPreflightState = "checking";
+  browserPreflightError = null;
+  render();
+  const result = await runBrowserPreflight();
+  applyBrowserPreflightResult(result);
+  if (result.kind === "unsupported") {
+    browserPreflightError = result.reason === "secure-context" ? "secureContextRequired" : "browserUnsupported";
+  } else if (result.kind === "blocked") {
+    browserPreflightError = result.reason === "permission" ? "localNetworkDenied" : "localNetworkUnavailable";
+  }
+  render();
+}
+
+function applyBrowserPreflightResult(result: BrowserPreflightResult): void {
+  browserPreflightState = result.kind;
+  if (result.kind !== "ready") directoryHandle = null;
+  linkDiagnostic("browser preflight completed", result);
+}
+
 async function chooseFolder(): Promise<void> {
-  if (state !== "idle" && state !== "error") return;
+  if (browserPreflightState !== "ready" || (state !== "idle" && state !== "error")) return;
   const error = document.querySelector<HTMLParagraphElement>("#inline-error");
   if (!window.isSecureContext) {
     if (error) error.textContent = t("secureContextRequired");
@@ -273,6 +332,7 @@ async function chooseFolder(): Promise<void> {
   }
   try {
     directoryHandle = await window.showDirectoryPicker({ id: "watermelon-link-backup", mode: "readwrite" });
+    linkDiagnostic("folder selected");
     render();
   } catch (caught) {
     if ((caught as DOMException).name !== "AbortError" && error) error.textContent = t("folderCancelled");
@@ -280,30 +340,46 @@ async function chooseFolder(): Promise<void> {
 }
 
 async function createLink(): Promise<void> {
-  if (!directoryHandle || (state !== "idle" && state !== "error")) return;
+  if (browserPreflightState !== "ready" || !directoryHandle || (state !== "idle" && state !== "error")) return;
+  if (browserNodeCleanup) {
+    showInlineError(t("browserNodeCleanupPending"));
+    return;
+  }
   const attempt = ++connectionAttempt;
   const controller = new AbortController();
   requestController?.abort();
   requestController = controller;
   resetSignalingState();
   state = "preparing";
+  linkDiagnostic("connection attempt started", { attempt });
   render();
   try {
+    const acquiredLease = await BrowserNodeLease.acquire(controller.signal, toBase64URL(randomSecret()));
+    try {
+      assertCurrentAttempt(attempt, controller.signal);
+      browserNodeLease = acquiredLease;
+    } catch (error) {
+      await acquiredLease.closeAfter();
+      throw error;
+    }
     const config = await fetchJSON<PublicConfig>("/api/v1/config", { signal: controller.signal });
+    linkDiagnostic("public config loaded", { protocolVersion: config.protocolVersion, turnstileEnabled: config.turnstileEnabled });
+    if (config.protocolVersion !== protocolVersion) throw new Error("Protocol version mismatch");
     assertCurrentAttempt(attempt, controller.signal);
     const turnstileToken = config.turnstileEnabled ? await requestTurnstileToken(config.turnstileSiteKey, controller.signal) : "development-bypass";
     assertCurrentAttempt(attempt, controller.signal);
     const secret = randomSecret();
-    const capabilityHash = await sha256(secret);
+    const commitment = await capabilityHash(secret);
     assertCurrentAttempt(attempt, controller.signal);
     const ticket = await fetchJSON<TicketResponse>("/api/v1/tickets", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ turnstileToken, capabilityHash }),
+      body: JSON.stringify({ turnstileToken, capabilityHash: commitment }),
       signal: controller.signal
     });
+    linkDiagnostic("pairing ticket created", { expiresInSeconds: ticket.expiresInSeconds });
     assertCurrentAttempt(attempt, controller.signal);
-    const cipher = await SignalCipher.create(secret, ticket.sessionID);
+    const cipher = await SignalCipher.create(secret, ticket.sessionID, "browser");
     assertCurrentAttempt(attempt, controller.signal);
     pairingSecret = secret;
     activeTicket = ticket;
@@ -314,7 +390,9 @@ async function createLink(): Promise<void> {
     startExpiryCountdown(ticket.expiresInSeconds, attempt);
     openSignalingSocket(ticket.ticket, attempt);
   } catch (error) {
-    if (!isAbortError(error) && connectionAttempt === attempt) failConnection(attempt, error, t("connectionFailed"));
+    if (!isAbortError(error) && connectionAttempt === attempt) {
+      failConnection(attempt, error, t(error instanceof BrowserNodeInUseError ? "browserNodeInUse" : "connectionFailed"));
+    }
   } finally {
     if (requestController === controller) requestController = null;
   }
@@ -348,9 +426,11 @@ async function requestTurnstileToken(siteKey: string | null, signal: AbortSignal
         sitekey: siteKey,
         action: "create_link",
         theme: "auto",
+        language: htmlLanguage(locale),
         callback: (token) => finish(token, true),
         "error-callback": () => finish(new Error("Turnstile verification failed"), false),
-        "expired-callback": () => finish(new Error("Turnstile verification expired"), false)
+        "expired-callback": () => finish(new Error("Turnstile verification expired"), false),
+        "unsupported-callback": () => finish(new Error("Turnstile is unsupported in this browser"), false)
       });
     } catch (error) {
       finish(error instanceof Error ? error : new Error("Turnstile failed to render"), false);
@@ -394,6 +474,7 @@ function openSignalingSocket(ticket: string, attempt: number): void {
   url.searchParams.set("ticket", ticket);
   url.searchParams.set("role", "browser");
   const currentSocket = new WebSocket(url);
+  linkDiagnostic("signaling WebSocket opening", { attempt });
   socket = currentSocket;
   currentSocket.addEventListener("message", (event) => {
     signalingQueue = signalingQueue
@@ -401,8 +482,14 @@ function openSignalingSocket(ticket: string, attempt: number): void {
       .catch((error) => failConnection(attempt, error, t("connectionFailed")));
   });
   currentSocket.addEventListener("close", (event) => {
+    linkDiagnostic("signaling WebSocket closed", { code: event.code, state, clean: event.wasClean });
     if (socket !== currentSocket || connectionAttempt !== attempt || state === "connected" || state === "idle" || state === "error") return;
-    failConnection(attempt, undefined, event.code === 4408 ? t("pairingExpired") : t("connectionFailed"));
+    const message = event.code === 4408
+      ? t("pairingExpired")
+      : event.reason === "peer_left"
+        ? t("peerDisconnected")
+        : t("connectionFailed");
+    failConnection(attempt, undefined, message);
   });
 }
 
@@ -411,8 +498,11 @@ async function handleServerMessage(raw: string, attempt: number): Promise<void> 
   const message = JSON.parse(raw) as ServerMessage;
   if (message.kind === "error") throw new Error(message.code);
   if (message.kind === "control") {
+    linkDiagnostic("signaling control", { event: message.event });
     if (message.event === "peer_joined") await beginPeerConnection(attempt);
-    if (message.event === "peer_left" && state !== "connected") cancelConnection();
+    if (message.event === "peer_left" && state !== "connected") {
+      failConnection(attempt, undefined, t("peerDisconnected"));
+    }
     return;
   }
   if (message.kind === "relay" && signalCipher) {
@@ -421,6 +511,8 @@ async function handleServerMessage(raw: string, attempt: number): Promise<void> 
     const connection = peerConnection;
     if (!connection) throw new Error("Peer connection is unavailable");
     if (signal.type === "answer") {
+      const statistics = localICECandidateStatistics(signal.description.sdp ?? "");
+      linkDiagnostic("answer received", statistics);
       await connection.setRemoteDescription({
         ...signal.description,
         sdp: signal.description.sdp ? filterLocalICECandidates(signal.description.sdp) : signal.description.sdp
@@ -429,6 +521,7 @@ async function handleServerMessage(raw: string, attempt: number): Promise<void> 
       return;
     }
     if (signal.type === "ice" && signal.candidate) {
+      linkDiagnostic("remote ICE candidate", { label: localICECandidateDiagnosticLabel(signal.candidate.candidate ?? "") });
       if (!signal.candidate.candidate || !allowsLocalICECandidate(signal.candidate.candidate)) return;
       if (connection.remoteDescription) await connection.addIceCandidate(signal.candidate);
       else pendingRemoteCandidates.push(signal.candidate);
@@ -443,30 +536,52 @@ async function beginPeerConnection(attempt: number): Promise<void> {
   state = "negotiating";
   render();
   const connection = new RTCPeerConnection({ iceServers: [] });
+  linkDiagnostic("peer connection created", { iceServers: 0 });
   peerConnection = connection;
   connection.addEventListener("icecandidate", (event) => {
     if (!event.candidate || peerConnection !== connection || connectionAttempt !== attempt) return;
     const candidate = event.candidate.toJSON();
+    linkDiagnostic("local ICE candidate", { label: localICECandidateDiagnosticLabel(candidate.candidate ?? "") });
     if (!candidate.candidate || !allowsLocalICECandidate(candidate.candidate)) return;
     if (!localDescriptionSent) pendingLocalCandidates.push(candidate);
     else void queueEncryptedSignal({ type: "ice", candidate }, attempt).catch((error) => failConnection(attempt, error, t("connectionFailed")));
   });
   connection.addEventListener("connectionstatechange", () => {
     if (peerConnection !== connection || connectionAttempt !== attempt) return;
-    if (connection.connectionState === "failed") failConnection(attempt, new Error("WebRTC connection failed"), t("connectionFailed"));
-    else if (connection.connectionState === "disconnected") showInlineError(t("connectionFailed"));
+    linkDiagnostic("peer connection state", { state: connection.connectionState });
+    if (connection.connectionState === "failed") {
+      failConnection(attempt, new Error("WebRTC connection failed"), transportFailureMessage());
+    }
+  });
+  connection.addEventListener("iceconnectionstatechange", () => {
+    linkDiagnostic("ICE connection state", { state: connection.iceConnectionState });
+  });
+  connection.addEventListener("icegatheringstatechange", () => {
+    linkDiagnostic("ICE gathering state", { state: connection.iceGatheringState });
   });
   const channel = connection.createDataChannel("watermelon-link-v1", { ordered: true });
   dataChannel = channel;
   channel.binaryType = "arraybuffer";
+  const startAuthenticationTimeout = installDataChannelAuthentication(channel, connection, attempt);
   channel.addEventListener("open", () => {
-    void authenticateDataChannel(channel, attempt).catch((error) => failConnection(attempt, error, t("connectionFailed")));
+    linkDiagnostic("data channel open");
+    startAuthenticationTimeout();
+  });
+  channel.addEventListener("close", () => {
+    if (dataChannel !== channel || connectionAttempt !== attempt || state === "idle" || state === "error") return;
+    failConnection(attempt, new Error("Data channel closed"), transportFailureMessage());
+  });
+  channel.addEventListener("error", () => {
+    if (dataChannel !== channel || connectionAttempt !== attempt) return;
+    failConnection(attempt, new Error("Data channel failed"), transportFailureMessage());
   });
   const offer = await connection.createOffer();
   assertCurrentAttempt(attempt);
   await connection.setLocalDescription(offer);
   assertCurrentAttempt(attempt);
   const localDescription = connection.localDescription ?? offer;
+  const statistics = localICECandidateStatistics(localDescription.sdp ?? "");
+  linkDiagnostic("offer created", { ...statistics, pendingTrickle: pendingLocalCandidates.length });
   await queueEncryptedSignal({
     type: "offer",
     description: {
@@ -495,35 +610,98 @@ function queueEncryptedSignal(message: SignalMessage, attempt: number): Promise<
   return task;
 }
 
-async function authenticateDataChannel(channel: RTCDataChannel, attempt: number): Promise<void> {
+function installDataChannelAuthentication(
+  channel: RTCDataChannel,
+  connection: RTCPeerConnection,
+  attempt: number
+): () => void {
   const secret = pairingSecret;
-  if (dataChannel !== channel || !secret) return;
+  if (dataChannel !== channel || !secret) throw new Error("Pairing secret is unavailable");
   const nonce = toBase64URL(crypto.getRandomValues(new Uint8Array(24)));
-  const expectedMAC = await authenticationMAC(secret, nonce);
-  assertCurrentAttempt(attempt);
-  authenticationTimer = window.setTimeout(() => failConnection(attempt, new Error("Data channel authentication timed out"), t("connectionFailed")), 10_000);
-  const onMessage = (event: MessageEvent) => {
-    try {
-      const message = JSON.parse(String(event.data)) as { type?: string; mac?: string };
-      if (message.type !== "auth_response" || !message.mac || !timingSafeEqual(message.mac, expectedMAC)) return;
-      assertCurrentAttempt(attempt);
-      if (authenticationTimer !== null) window.clearTimeout(authenticationTimer);
+  const sessionID = activeTicket?.sessionID;
+  if (!sessionID) throw new Error("Pairing session is unavailable");
+  let expectedMAC: string | null = null;
+  let challengeStarted = false;
+  let confirmationStarted = false;
+  const startTimeout = () => {
+    if (connectionAttempt !== attempt || dataChannel !== channel || channel.readyState !== "open") return;
+    if (authenticationTimer !== null) return;
+    authenticationTimer = window.setTimeout(() => {
+      if (connectionAttempt !== attempt || dataChannel !== channel) return;
       authenticationTimer = null;
+      failConnection(attempt, new Error("Data channel authentication timed out"), t("connectionFailed"));
+    }, 10_000);
+  };
+  const onMessage = (event: MessageEvent) => {
+    if (connectionAttempt !== attempt || dataChannel !== channel) return;
+    try {
+      const message = JSON.parse(String(event.data)) as { type?: string; protocolVersion?: number; mac?: string };
+      if (message.type === "auth_ready") {
+        if (challengeStarted || message.protocolVersion !== protocolVersion) throw new Error("Invalid authentication readiness");
+        startTimeout();
+        challengeStarted = true;
+        void authenticationMAC(secret, sessionID, nonce).then((mac) => {
+          assertCurrentAttempt(attempt);
+          if (dataChannel !== channel || channel.readyState !== "open") throw abortError();
+          expectedMAC = mac;
+          linkDiagnostic("data channel auth challenge sent");
+          channel.send(JSON.stringify({ type: "auth_challenge", nonce }));
+        }).catch((error) => failConnection(attempt, error, t("connectionFailed")));
+        return;
+      }
+      if (message.type !== "auth_response" || !expectedMAC || !message.mac || !timingSafeEqual(message.mac, expectedMAC)) {
+        throw new Error("Invalid authentication response");
+      }
+      if (confirmationStarted) throw new Error("Duplicate authentication response");
+      confirmationStarted = true;
+      linkDiagnostic("data channel auth response accepted");
+      assertCurrentAttempt(attempt);
       channel.removeEventListener("message", onMessage);
-      if (!directoryHandle) throw new Error("Folder access is unavailable");
-      disposeFileSystemNode?.();
-      disposeFileSystemNode = installFileSystemNode(channel, directoryHandle);
-      channel.send(JSON.stringify({ type: "auth_ok", protocolVersion: 2, folderName: directoryHandle.name }));
-      clearExpiryTimers();
-      state = "connected";
-      render();
-      if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ kind: "complete" }));
+      const selectedDirectory = directoryHandle;
+      if (!selectedDirectory) throw new Error("Folder access is unavailable");
+      if (fileSystemNodeController) throw new Error("Filesystem node is already installed");
+      const lease = browserNodeLease;
+      if (!lease) throw new Error("Browser node scope is unavailable");
+      const currentScope = lease.currentScope;
+      const reclaimScopes = lease.reclaimScopes;
+      const uploadChunkBytes = uploadChunkBytesForMaxMessage(connection.sctp?.maxMessageSize);
+      void authenticationConfirmationMAC(
+        secret,
+        sessionID,
+        nonce,
+        selectedDirectory.name,
+        currentScope,
+        reclaimScopes,
+        uploadChunkBytes
+      ).then((mac) => {
+        assertCurrentAttempt(attempt);
+        if (dataChannel !== channel || channel.readyState !== "open") throw abortError();
+        if (directoryHandle !== selectedDirectory) throw new Error("Selected folder changed");
+        fileSystemNodeController = installFileSystemNodeController(channel, selectedDirectory, uploadChunkBytes);
+        channel.send(JSON.stringify({
+          type: "auth_ok",
+          protocolVersion,
+          folderName: selectedDirectory.name,
+          browserNodeID: currentScope,
+          reclaimBrowserNodeIDs: reclaimScopes,
+          uploadChunkBytes,
+          mac
+        }));
+        if (authenticationTimer !== null) window.clearTimeout(authenticationTimer);
+        authenticationTimer = null;
+        clearExpiryTimers();
+        state = "connected";
+        linkDiagnostic("connection authenticated", { protocolVersion });
+        render();
+        if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ kind: "complete" }));
+      }).catch((error) => failConnection(attempt, error, t("connectionFailed")));
     } catch (error) {
       failConnection(attempt, error, t("connectionFailed"));
     }
   };
   channel.addEventListener("message", onMessage);
-  channel.send(JSON.stringify({ type: "auth_challenge", nonce }));
+  linkDiagnostic("waiting for data channel authentication readiness");
+  return startTimeout;
 }
 
 async function drawQRCode(): Promise<void> {
@@ -570,15 +748,25 @@ function clearExpiryTimers(): void {
 }
 
 function cancelConnection(): void {
+  linkDiagnostic("connection cancelled", { state });
   connectionAttempt += 1;
   disposeConnection(true);
   state = "idle";
   render();
 }
 
+function transportFailureMessage(): string {
+  return state === "connected" ? t("peerDisconnected") : t("connectionFailed");
+}
+
 function failConnection(attempt: number, error: unknown, message: string): void {
   if (connectionAttempt !== attempt || state === "idle" || state === "error") return;
-  if (error && !isAbortError(error)) console.error(error);
+  if (error && !isAbortError(error)) {
+    const safeError = error instanceof Error ? { name: error.name, message: error.message } : { name: typeof error };
+    console.error("[WatermelonLink] connection failed", { attempt, state, error: safeError });
+  } else {
+    linkDiagnostic("connection failed", { attempt, state });
+  }
   connectionAttempt += 1;
   disposeConnection(true);
   state = "error";
@@ -587,6 +775,7 @@ function failConnection(attempt: number, error: unknown, message: string): void 
 }
 
 function disposeConnection(sendCancel: boolean): void {
+  linkDiagnostic("connection disposed", { sendCancel, state });
   clearExpiryTimers();
   if (authenticationTimer !== null) window.clearTimeout(authenticationTimer);
   authenticationTimer = null;
@@ -597,8 +786,18 @@ function disposeConnection(sendCancel: boolean): void {
   }
   socket?.close();
   dataChannel?.close();
-  disposeFileSystemNode?.();
-  disposeFileSystemNode = null;
+  const nodeController = fileSystemNodeController;
+  fileSystemNodeController = null;
+  nodeController?.dispose();
+  const lease = browserNodeLease;
+  browserNodeLease = null;
+  if (lease) {
+    const cleanup = lease.closeAfter(nodeController?.waitForQuiescence());
+    browserNodeCleanup = cleanup;
+    void cleanup.finally(() => {
+      if (browserNodeCleanup === cleanup) browserNodeCleanup = null;
+    });
+  }
   peerConnection?.close();
   socket = null;
   peerConnection = null;
@@ -716,12 +915,21 @@ function updateMetadata(): void {
   document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute("content", t("intro"));
   document.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.setAttribute("content", t("intro"));
   document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute("href", `https://link.watermelonbackup.com${localePath(locale)}`);
-  const smartBanner = document.querySelector<HTMLMetaElement>('meta[name="apple-itunes-app"]');
-  const appArgument = location.pathname.endsWith("/pair") ? `, app-argument=${location.href}` : "";
-  smartBanner?.setAttribute("content", `app-id=6762260596${appArgument}`);
 }
 
 window.addEventListener("scroll", updateHeader, { passive: true });
+window.addEventListener("pagehide", () => {
+  connectionAttempt += 1;
+  disposeConnection(false);
+  state = "idle";
+});
+window.addEventListener("pageshow", (event) => {
+  if (!event.persisted) return;
+  state = "idle";
+  browserPreflightState = "unchecked";
+  directoryHandle = null;
+  render();
+});
 document.addEventListener("click", (event) => {
   const nav = document.querySelector<HTMLElement>("[data-nav]");
   const toggle = document.querySelector<HTMLElement>("[data-nav-toggle]");
@@ -732,3 +940,4 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeNavigation();
 });
 render();
+linkDiagnostic("diagnostics ready", { protocolVersion });

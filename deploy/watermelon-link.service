@@ -22,9 +22,9 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true
 LockPersonality=true
-MemoryMax=512M
-TasksMax=128
-LimitNOFILE=8192
+MemoryMax=6G
+TasksMax=1024
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target

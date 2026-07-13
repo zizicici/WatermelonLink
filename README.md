@@ -51,4 +51,4 @@ See `deploy/README.md` for the VPS activation sequence and logging constraints.
 
 ## Current boundary
 
-This repository completes folder selection, human verification, short-lived pairing, LAN-only WebRTC negotiation, DataChannel authentication, and the browser side of the temporary remote-storage protocol. The iOS app exposes the authenticated browser folder to its existing backup pipeline for the lifetime of the connection; the node is never persisted as a saved destination.
+This repository completes folder selection, human verification, short-lived pairing, private host-candidate WebRTC negotiation without STUN or TURN, DataChannel authentication, and the browser side of the temporary remote-storage protocol. The iOS app exposes the authenticated browser folder to its existing backup pipeline for the lifetime of the connection; the node is never persisted as a saved destination.

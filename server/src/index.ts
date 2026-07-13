@@ -1,6 +1,8 @@
 import { loadConfig } from "./config.js";
+import { installProcessSafetyHandlers } from "./process-safety.js";
 import { createLinkServer } from "./server.js";
 
+installProcessSafetyHandlers();
 const config = loadConfig();
 const server = createLinkServer(config);
 
