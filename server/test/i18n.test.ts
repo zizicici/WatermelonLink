@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { isPairingPath, localeForLanguageIdentifier, translator, type Locale } from "../../web/src/i18n";
 
+const locales: Locale[] = [
+  "en", "zh-Hans", "zh-Hant", "ja", "ko", "de", "fr",
+  "es", "es-419", "pt-BR", "pt-PT", "ru", "uk",
+];
+
 test("pairing page detection accepts only pair paths with an optional trailing slash", () => {
   assert.equal(isPairingPath("/pair"), true);
   assert.equal(isPairingPath("/pair/"), true);
@@ -12,10 +17,6 @@ test("pairing page detection accepts only pair paths with an optional trailing s
 });
 
 test("every locale tells the user how to continue after connecting", () => {
-  const locales: Locale[] = [
-    "en", "zh-Hans", "zh-Hant", "ja", "ko", "de", "fr",
-    "es", "es-419", "pt-BR", "pt-PT", "ru", "uk",
-  ];
   for (const locale of locales) {
     const t = translator(locale);
     assert.ok(t("connectedTitle").length > 0, locale);
@@ -29,4 +30,8 @@ test("Latin American Spanish browser locales select es-419 automatically", () =>
   }
   assert.equal(localeForLanguageIdentifier("es-ES"), "es");
   assert.equal(localeForLanguageIdentifier("es"), "es");
+});
+
+test("every locale exposes the Link navigation shortcut", () => {
+  for (const locale of locales) assert.equal(translator(locale)("navLink"), "Link", locale);
 });

@@ -157,6 +157,7 @@ function siteHeader(): string {
         </button>
       </div>
       <nav class="site-nav" id="site-nav" data-nav>
+        <a href="${locale === "en" ? "/" : `/${locale}/`}" aria-current="page">${escapeHTML(t("navLink"))}</a>
         <a href="${mainSiteURL("/#privacy")}">${escapeHTML(t("navPrivacy"))}</a>
         <a href="${mainSiteURL("/#pricing")}">${escapeHTML(t("navPricing"))}</a>
         <a href="${mainSiteURL("/#faq")}">${escapeHTML(t("navFAQ"))}</a>

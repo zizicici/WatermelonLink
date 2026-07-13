@@ -3,7 +3,7 @@ export type Locale = "en" | "zh-Hans" | "zh-Hant" | "ja" | "ko" | "de" | "fr" | 
 const supportedLocales: readonly Locale[] = ["en", "zh-Hans", "zh-Hant", "ja", "ko", "de", "fr", "es", "es-419", "pt-BR", "pt-PT", "ru", "uk"];
 
 const en = {
-  brand: "Watermelon Backup", homepage: "Homepage", language: "Language", navOpen: "Open navigation", navPrivacy: "Privacy", navPricing: "Pricing", navFAQ: "FAQ", navSpecs: "Specifications", navContact: "Contact", privacyPolicy: "Privacy Policy", footerNav: "Footer navigation",
+  brand: "Watermelon Backup", homepage: "Homepage", language: "Language", navOpen: "Open navigation", navLink: "Link", navPrivacy: "Privacy", navPricing: "Pricing", navFAQ: "FAQ", navSpecs: "Specifications", navContact: "Contact", privacyPolicy: "Privacy Policy", footerNav: "Footer navigation",
   intro: "Choose a folder, scan once with your iPhone, and keep every original on your own computer.",
   panelTitle: "One-Time Connection over Your Local Network", panelIntro: "Watermelon Link works while this page and the Watermelon app stay open.", statusReady: "Ready", statusPreparing: "Preparing", statusWaiting: "Waiting", statusConnecting: "Connecting", statusDirect: "Direct", statusAction: "Action Needed",
   preflightTitle: "Check Browser", preflightCheck: "Start Check", preflightChecking: "Checking…", preflightReady: "Available", preflightRetry: "Try Again", localNetworkDenied: "Allow Local Network access for this site in your browser settings, then try again.", localNetworkUnavailable: "The browser WebRTC check failed. Reload this page and try again.",
