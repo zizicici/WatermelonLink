@@ -211,7 +211,10 @@ function connectionContent(): string {
     const titleKey: MessageKey = state === "connected" ? "connectedTitle" : state === "negotiating" ? "connectingTitle" : "preparing";
     return `
       <div class="connection-state ${state}" aria-live="polite">
-        <div class="state-orbit" aria-hidden="true"><span></span></div>
+        <div class="state-orbit" aria-hidden="true">
+          <span class="state-orbit-ripple"></span>
+          <span class="state-orbit-ripple"></span>
+        </div>
         <h3>${escapeHTML(t(titleKey))}</h3>
         ${state === "connected" ? `<p>${escapeHTML(t("connectedDetail"))}</p>` : ""}
         <button id="cancel-button" class="button button-tonal" type="button">${escapeHTML(t(state === "connected" ? "disconnect" : "cancel"))}</button>

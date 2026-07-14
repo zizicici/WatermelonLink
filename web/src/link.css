@@ -283,9 +283,27 @@ button.button {
   background: var(--md-primary);
 }
 
-.connection-state.preparing .state-orbit,
-.connection-state.negotiating .state-orbit {
-  animation: link-spin 2.2s linear infinite;
+.state-orbit-ripple {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--md-primary);
+  border-radius: 50%;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.connection-state.preparing .state-orbit-ripple,
+.connection-state.negotiating .state-orbit-ripple,
+.connection-state.connected .state-orbit-ripple {
+  animation: link-ripple 2.4s ease-out infinite;
+}
+
+.connection-state .state-orbit-ripple:nth-child(2) {
+  animation-delay: 1.2s;
 }
 
 .connection-state.connected .state-orbit::after {
@@ -296,8 +314,21 @@ button.button {
   margin-top: 22px;
 }
 
-@keyframes link-spin {
-  to { transform: rotate(360deg); }
+@keyframes link-ripple {
+  0% {
+    width: 8px;
+    height: 8px;
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.46;
+  }
+  82%,
+  100% {
+    width: 88px;
+    height: 88px;
+    opacity: 0;
+  }
 }
 
 .turnstile-slot {
@@ -412,8 +443,9 @@ button.button {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .connection-state.preparing .state-orbit,
-  .connection-state.negotiating .state-orbit {
+  .connection-state.preparing .state-orbit-ripple,
+  .connection-state.negotiating .state-orbit-ripple,
+  .connection-state.connected .state-orbit-ripple {
     animation: none;
   }
 }
