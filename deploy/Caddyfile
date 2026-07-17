@@ -6,10 +6,57 @@ link.watermelonbackup.com {
 	encode zstd gzip
 
 	@cloudflare remote_ip 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+	@backend path /healthz /api/* /ws/*
+	@appPage path / /index.html /pair /pair/ /zh-Hans /zh-Hans/ /zh-Hans/pair /zh-Hans/pair/ /zh-Hant /zh-Hant/ /zh-Hant/pair /zh-Hant/pair/ /ja /ja/ /ja/pair /ja/pair/ /ko /ko/ /ko/pair /ko/pair/ /de /de/ /de/pair /de/pair/ /fr /fr/ /fr/pair /fr/pair/ /es /es/ /es/pair /es/pair/ /es-419 /es-419/ /es-419/pair /es-419/pair/ /pt-BR /pt-BR/ /pt-BR/pair /pt-BR/pair/ /pt-PT /pt-PT/ /pt-PT/pair /pt-PT/pair/ /ru /ru/ /ru/pair /ru/pair/ /uk /uk/ /uk/pair /uk/pair/
+	@fingerprintedAsset path_regexp ^/assets/index-[A-Za-z0-9_-]+\.(css|js)$
+	@publicAsset path /favicon.ico /assets/app-icon.png /assets/apple-touch-icon.png /assets/favicon-192.png /assets/social-card.png
 
 	handle @cloudflare {
-		reverse_proxy 127.0.0.1:4173 {
-			header_up X-Real-IP {http.request.header.Cf-Connecting-Ip}
+		header {
+			Content-Security-Policy "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss://link.watermelonbackup.com https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+			Cross-Origin-Opener-Policy "same-origin"
+			Cross-Origin-Resource-Policy "same-origin"
+			Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+			Referrer-Policy "no-referrer"
+			Strict-Transport-Security "max-age=31536000; includeSubDomains"
+			X-Content-Type-Options "nosniff"
+		}
+
+		handle @backend {
+			reverse_proxy 127.0.0.1:4173 {
+				header_up X-Real-IP {http.request.header.Cf-Connecting-Ip}
+			}
+		}
+
+		handle @appPage {
+			rewrite * /index.html
+			header Cache-Control "no-cache"
+			root * /opt/watermelon-link/web-current
+			file_server
+		}
+
+		handle @fingerprintedAsset {
+			header Cache-Control "public, max-age=31536000, immutable"
+			root * /opt/watermelon-link/web-current
+			file_server
+		}
+
+		handle /.well-known/apple-app-site-association {
+			header Cache-Control "public, max-age=3600"
+			header Content-Type "application/json; charset=utf-8"
+			root * /opt/watermelon-link/web-current
+			file_server
+		}
+
+		handle @publicAsset {
+			header Cache-Control "public, max-age=3600"
+			root * /opt/watermelon-link/web-current
+			file_server
+		}
+
+		handle {
+			root * /opt/watermelon-link/web-current
+			file_server
 		}
 	}
 

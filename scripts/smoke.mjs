@@ -11,6 +11,7 @@ const origin = originURL.origin;
 const websocketOrigin = origin.replace(/^http/, "ws");
 const timeoutMilliseconds = 5_000;
 
+await verifyStaticSite(origin);
 const initialHealth = await fetchJSON(`${origin}/healthz`);
 assertHealth(initialHealth);
 
@@ -132,4 +133,16 @@ function assertHealth(value) {
   assert.equal(value?.ok, true);
   assert.equal(Number.isSafeInteger(value?.rooms) && value.rooms >= 0, true);
   assert.equal(Number.isSafeInteger(value?.connections) && value.connections >= 0, true);
+}
+
+async function verifyStaticSite(origin) {
+  const page = await fetch(`${origin}/`, { signal: AbortSignal.timeout(timeoutMilliseconds) });
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get("cache-control"), "no-cache");
+  const html = await page.text();
+  const assetPath = html.match(/src="(\/assets\/index-[A-Za-z0-9_-]+\.js)"/)?.[1];
+  assert.equal(typeof assetPath, "string");
+  const asset = await fetch(`${origin}${assetPath}`, { signal: AbortSignal.timeout(timeoutMilliseconds) });
+  assert.equal(asset.status, 200);
+  assert.equal(asset.headers.get("cache-control"), "public, max-age=31536000, immutable");
 }

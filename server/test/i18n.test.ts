@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { isPairingPath, localeForLanguageIdentifier, translator, type Locale } from "../../web/src/i18n";
 
@@ -53,4 +54,18 @@ test("every locale matches the main site's Guides navigation label", () => {
     uk: "Посібники",
   };
   for (const locale of locales) assert.equal(translator(locale)("navGuides"), expected[locale], locale);
+});
+
+test("production Caddy serves every application route from the independent web release", () => {
+  const caddyfile = readFileSync(new URL("../../deploy/Caddyfile", import.meta.url), "utf8");
+  const appRouteLine = caddyfile.split("\n").find((line) => line.trimStart().startsWith("@appPage path "));
+  assert.ok(appRouteLine);
+  const actualRoutes = appRouteLine.trim().split(/\s+/).slice(2);
+  const expectedRoutes = ["/", "/index.html", "/pair", "/pair/"];
+  for (const locale of locales.filter((value) => value !== "en")) {
+    expectedRoutes.push(`/${locale}`, `/${locale}/`, `/${locale}/pair`, `/${locale}/pair/`);
+  }
+  assert.deepEqual(actualRoutes, expectedRoutes);
+  assert.match(caddyfile, /@backend path \/healthz \/api\/\* \/ws\/\*/);
+  assert.match(caddyfile, /root \* \/opt\/watermelon-link\/web-current/);
 });
