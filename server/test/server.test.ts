@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { connect as connectTCP, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -38,7 +38,9 @@ function testConfig(): LinkConfig {
     turnstileSiteKey: null,
     turnstileSecretKey: null,
     turnstileExpectedHostname: null,
-    staticRoot: "/does-not-exist"
+    staticRoot: "/does-not-exist",
+    usageMetricsPath: null,
+    usageMetricsRetentionDays: 400
   };
 }
 
@@ -111,6 +113,71 @@ async function issueTicket(origin: string): Promise<string> {
   assert.ok(ticket.expiresInSeconds > 88 && ticket.expiresInSeconds <= 90);
   return ticket.ticket;
 }
+
+test("usage metrics persist ticket issuance and completed signaling", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "watermelon-link-server-usage-"));
+  const path = join(directory, "usage.json");
+  const config = testConfig();
+  config.usageMetricsPath = path;
+  const server = createLinkServer(config);
+  let stopped = false;
+  context.after(async () => {
+    if (!stopped) await new Promise<void>((resolve) => server.shutdown(() => resolve()));
+    await rm(directory, { recursive: true, force: true });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  const origin = `http://127.0.0.1:${port}`;
+  const platformHeaders = {
+    "sec-ch-ua": '"Chromium";v="140", "Microsoft Edge";v="140"',
+    "sec-ch-ua-platform": '"Windows"',
+    "user-agent": "Mozilla/5.0"
+  };
+  const ticketResponse = await fetch(`${origin}/api/v1/tickets`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...platformHeaders },
+    body: JSON.stringify({
+      turnstileToken: "development-bypass",
+      capabilityHash: Buffer.alloc(32, 6).toString("base64url")
+    })
+  });
+  assert.equal(ticketResponse.status, 201);
+  const { ticket } = await ticketResponse.json() as { ticket: string };
+  const browser = await connect(
+    `ws://127.0.0.1:${port}/ws/v1?role=browser&ticket=${encodeURIComponent(ticket)}`,
+    { headers: platformHeaders }
+  );
+  assert.equal((await browser.next()).event, "waiting");
+  const browserJoined = browser.next();
+  const phone = await connect(`ws://127.0.0.1:${port}/ws/v1?role=phone&ticket=${encodeURIComponent(ticket)}`);
+  assert.equal((await phone.next()).event, "peer_joined");
+  assert.equal((await browserJoined).event, "peer_joined");
+  const closed = Promise.all([
+    new Promise<void>((resolve) => browser.socket.once("close", () => resolve())),
+    new Promise<void>((resolve) => phone.socket.once("close", () => resolve()))
+  ]);
+  browser.socket.send(JSON.stringify({ kind: "complete" }));
+  await closed;
+  await new Promise<void>((resolve, reject) => server.shutdown((error) => error ? reject(error) : resolve()));
+  stopped = true;
+
+  const state = JSON.parse(await readFile(path, "utf8")) as {
+    days: Record<string, {
+      generatedLinks: { total: number; uniqueNetworks: number; browsers: Record<string, number>; operatingSystems: Record<string, number> };
+      successfulConnections: { total: number; uniqueNetworks: number; browsers: Record<string, number>; operatingSystems: Record<string, number> };
+    }>;
+  };
+  const usage = Object.values(state.days)[0];
+  assert.ok(usage);
+  assert.equal(usage.generatedLinks.total, 1);
+  assert.equal(usage.generatedLinks.uniqueNetworks, 1);
+  assert.deepEqual(usage.generatedLinks.browsers, { Edge: 1 });
+  assert.deepEqual(usage.generatedLinks.operatingSystems, { Windows: 1 });
+  assert.equal(usage.successfulConnections.total, 1);
+  assert.equal(usage.successfulConnections.uniqueNetworks, 1);
+  assert.deepEqual(usage.successfulConnections.browsers, { Edge: 1 });
+  assert.deepEqual(usage.successfulConnections.operatingSystems, { Windows: 1 });
+});
 
 test("cross-site and non-JSON ticket requests do not consume the IP quota", async (context) => {
   const config = testConfig();

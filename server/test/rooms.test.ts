@@ -311,3 +311,45 @@ test("cancel and signaling completion release all room connections", () => {
     registry.close();
   }
 });
+
+test("only signaling completion records the browser platform", () => {
+  const completed: Array<{ platform: { browser: string; operatingSystem: string }; network: string }> = [];
+  const registry = new RoomRegistry(limits(), {
+    connectionCompleted: (platform, network) => completed.push({ platform, network })
+  });
+  const browser = socket();
+  const phone = socket();
+  const ticket = claims("usage-complete");
+  registry.attach(
+    asWebSocket(browser),
+    ticket,
+    "browser",
+    "203.0.113.1",
+    { browser: "Edge", operatingSystem: "Windows" }
+  );
+  registry.attach(asWebSocket(phone), ticket, "phone", "203.0.113.2");
+  browser.emit("message", Buffer.from(JSON.stringify({ kind: "complete" })), false);
+  assert.deepEqual(completed, [{
+    platform: { browser: "Edge", operatingSystem: "Windows" },
+    network: "203.0.113.1"
+  }]);
+  registry.close();
+
+  const cancelled = new RoomRegistry(limits(), {
+    connectionCompleted: (platform, network) => completed.push({ platform, network })
+  });
+  const cancelledBrowser = socket();
+  const cancelledPhone = socket();
+  const cancelledTicket = claims("usage-cancel");
+  cancelled.attach(
+    asWebSocket(cancelledBrowser),
+    cancelledTicket,
+    "browser",
+    "203.0.113.1",
+    { browser: "Chrome", operatingSystem: "macOS" }
+  );
+  cancelled.attach(asWebSocket(cancelledPhone), cancelledTicket, "phone", "203.0.113.2");
+  cancelledBrowser.emit("message", Buffer.from(JSON.stringify({ kind: "cancel" })), false);
+  assert.equal(completed.length, 1);
+  cancelled.close();
+});

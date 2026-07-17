@@ -2,6 +2,7 @@ import { createReadStream, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { WebSocketServer } from "ws";
+import { classifyClientPlatform } from "./client-platform.js";
 import type { LinkConfig } from "./config.js";
 import { normalizePublicOrigin } from "./config.js";
 import { clientNetworkPrefix, isPlausibleTurnstileToken, resolveClientAddress } from "./network-security.js";
@@ -9,6 +10,7 @@ import { FixedWindowRateLimiter } from "./rate-limiter.js";
 import { RoomRegistry, type PeerRole } from "./rooms.js";
 import { isCanonicalCapabilityHash, TicketService } from "./tickets.js";
 import { TurnstileVerifier } from "./turnstile.js";
+import { UsageMetrics } from "./usage-metrics.js";
 
 type Middleware = (request: IncomingMessage, response: ServerResponse, next: () => void) => void;
 
@@ -40,7 +42,14 @@ export function createLinkServer(config: LinkConfig, developmentMiddleware?: Mid
     maximumConcurrent: config.turnstileMaximumConcurrent,
     requestsPerMinute: config.turnstileRequestsPerMinute
   });
-  const rooms = new RoomRegistry(config);
+  const usageMetrics = new UsageMetrics(
+    config.usageMetricsPath,
+    config.usageMetricsRetentionDays,
+    config.ticketSigningSecret
+  );
+  const rooms = new RoomRegistry(config, {
+    connectionCompleted: (platform, network) => usageMetrics.recordConnection(platform, network)
+  });
   const websocketServerOptions = {
     noServer: true,
     allowSynchronousEvents: false,
@@ -116,6 +125,7 @@ export function createLinkServer(config: LinkConfig, developmentMiddleware?: Mid
       }
       try {
         const issued = tickets.issue(body.capabilityHash);
+        try { usageMetrics.recordGeneratedLink(classifyClientPlatform(request.headers), network); } catch {}
         return json(response, 201, {
           ticket: issued.ticket,
           sessionID: issued.claims.sessionID,
@@ -189,7 +199,8 @@ export function createLinkServer(config: LinkConfig, developmentMiddleware?: Mid
           try { websocket.terminate(); } catch {}
         };
         websocket.once("error", rejectError);
-        if (rooms.attach(websocket, claims, role as PeerRole, network)) {
+        const platform = role === "browser" ? classifyClientPlatform(request.headers) : null;
+        if (rooms.attach(websocket, claims, role as PeerRole, network, platform)) {
           websocket.off("error", rejectError);
         }
       });
@@ -205,9 +216,17 @@ export function createLinkServer(config: LinkConfig, developmentMiddleware?: Mid
     rooms.close();
     websocketServer.close();
   };
-  server.on("close", closeResources);
+  server.on("close", () => {
+    closeResources();
+    void usageMetrics.close();
+  });
   const shutdown = (callback?: (error?: Error) => void) => {
-    server.close(callback);
+    server.close((error) => {
+      void usageMetrics.close().then(
+        () => callback?.(error),
+        () => callback?.(error)
+      );
+    });
     closeResources();
   };
   return Object.assign(server, { shutdown });

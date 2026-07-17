@@ -14,7 +14,8 @@ test("public origin validation normalizes HTTP(S) origins and rejects request UR
 test("deployment config fixes ticket TTL and preserves HTTP connection headroom", () => {
   const names = [
     "NODE_ENV", "TURNSTILE_BYPASS", "TICKET_TTL_SECONDS", "MAX_ROOMS", "MAX_SERVER_CONNECTIONS",
-    "WEBSOCKET_UPGRADES_PER_MINUTE", "WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE"
+    "WEBSOCKET_UPGRADES_PER_MINUTE", "WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE",
+    "USAGE_METRICS_PATH", "USAGE_METRICS_RETENTION_DAYS"
   ] as const;
   const previous = new Map(names.map((name) => [name, process.env[name]]));
   try {
@@ -32,9 +33,21 @@ test("deployment config fixes ticket TTL and preserves HTTP connection headroom"
 
     delete process.env.WEBSOCKET_UPGRADES_PER_MINUTE;
     delete process.env.WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE;
+    delete process.env.USAGE_METRICS_PATH;
+    delete process.env.USAGE_METRICS_RETENTION_DAYS;
     const defaults = loadConfig();
     assert.equal(defaults.websocketUpgradesPerMinute, 60);
     assert.equal(defaults.websocketRawUpgradesGlobalPerMinute, 12_000);
+    assert.equal(defaults.usageMetricsPath, null);
+    assert.equal(defaults.usageMetricsRetentionDays, 400);
+
+    process.env.USAGE_METRICS_PATH = " /var/lib/watermelon-link/usage.json ";
+    process.env.USAGE_METRICS_RETENTION_DAYS = "365";
+    assert.equal(loadConfig().usageMetricsPath, "/var/lib/watermelon-link/usage.json");
+    assert.equal(loadConfig().usageMetricsRetentionDays, 365);
+    process.env.USAGE_METRICS_RETENTION_DAYS = "401";
+    assert.throws(() => loadConfig(), /USAGE_METRICS_RETENTION_DAYS/);
+    process.env.USAGE_METRICS_RETENTION_DAYS = "365";
 
     process.env.WEBSOCKET_UPGRADES_PER_MINUTE = "60";
     process.env.WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE = "238";

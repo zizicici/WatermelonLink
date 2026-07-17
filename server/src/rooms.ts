@@ -1,9 +1,10 @@
 import type { WebSocket } from "ws";
+import { unknownClientPlatform, type ClientPlatform } from "./client-platform.js";
 import type { TicketClaims } from "./tickets.js";
 
 export type PeerRole = "browser" | "phone";
 
-type Peer = { socket: WebSocket; role: PeerRole; network: string; controlFrames: number };
+type Peer = { socket: WebSocket; role: PeerRole; network: string; controlFrames: number; platform: ClientPlatform | null };
 type Room = {
   claims: TicketClaims;
   peers: Map<PeerRole, Peer>;
@@ -25,6 +26,10 @@ type RoomLimits = {
   roomTTLSeconds: number;
 };
 
+type RoomObserver = {
+  connectionCompleted?: (platform: ClientPlatform, network: string) => void;
+};
+
 const maximumControlFramesPerPeer = 16;
 
 export class RoomRegistry {
@@ -36,12 +41,21 @@ export class RoomRegistry {
   private activeConnections = 0;
   private readonly sweeper: NodeJS.Timeout;
 
-  constructor(private readonly limits: RoomLimits) {
+  constructor(
+    private readonly limits: RoomLimits,
+    private readonly observer: RoomObserver = {}
+  ) {
     this.sweeper = setInterval(() => this.sweep(), 15_000);
     this.sweeper.unref();
   }
 
-  attach(socket: WebSocket, claims: TicketClaims, role: PeerRole, network: string): boolean {
+  attach(
+    socket: WebSocket,
+    claims: TicketClaims,
+    role: PeerRole,
+    network: string,
+    platform: ClientPlatform | null = null
+  ): boolean {
     const now = Date.now();
     let consumedUntil = this.consumedSessions.get(claims.sessionID);
     if (consumedUntil && consumedUntil <= now) {
@@ -101,7 +115,7 @@ export class RoomRegistry {
       return false;
     }
 
-    const peer: Peer = { socket, role, network, controlFrames: 0 };
+    const peer: Peer = { socket, role, network, controlFrames: 0, platform };
     room.peers.set(role, peer);
     this.connectionsByNetwork.set(network, (this.connectionsByNetwork.get(network) ?? 0) + 1);
     this.activeConnections += 1;
@@ -170,6 +184,7 @@ export class RoomRegistry {
       if (peer.role !== "browser" || room.peers.size !== 2) {
         return this.closeRoom(room, 4400, "invalid_complete", true);
       }
+      try { this.observer.connectionCompleted?.(peer.platform ?? unknownClientPlatform, peer.network); } catch {}
       this.broadcast(room, { kind: "control", event: "signaling_complete" });
       return this.closeRoom(room, 1000, "signaling_complete", true);
     }

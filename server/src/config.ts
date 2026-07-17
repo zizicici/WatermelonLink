@@ -29,6 +29,8 @@ export type LinkConfig = {
   turnstileSecretKey: string | null;
   turnstileExpectedHostname: string | null;
   staticRoot: string;
+  usageMetricsPath: string | null;
+  usageMetricsRetentionDays: number;
 };
 
 function integer(name: string, fallback: number, minimum: number, maximum: number): number {
@@ -119,6 +121,8 @@ export function loadConfig(): LinkConfig {
     turnstileSiteKey,
     turnstileSecretKey,
     turnstileExpectedHostname: process.env.TURNSTILE_EXPECTED_HOSTNAME ?? (production ? "link.watermelonbackup.com" : null),
-    staticRoot: resolve(process.cwd(), process.env.STATIC_ROOT ?? "dist/web")
+    staticRoot: resolve(process.cwd(), process.env.STATIC_ROOT ?? "dist/web"),
+    usageMetricsPath: process.env.USAGE_METRICS_PATH?.trim() || null,
+    usageMetricsRetentionDays: integer("USAGE_METRICS_RETENTION_DAYS", 400, 1, 400)
   };
 }
