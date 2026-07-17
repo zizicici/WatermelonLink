@@ -158,6 +158,7 @@ function siteHeader(): string {
       </div>
       <nav class="site-nav" id="site-nav" data-nav>
         <a href="${locale === "en" ? "/" : `/${locale}/`}" aria-current="page">${escapeHTML(t("navLink"))}</a>
+        <a href="${mainSiteURL("/kb/")}">${escapeHTML(t("navGuides"))}</a>
         <a href="${mainSiteURL("/#privacy")}">${escapeHTML(t("navPrivacy"))}</a>
         <a href="${mainSiteURL("/#pricing")}">${escapeHTML(t("navPricing"))}</a>
         <a href="${mainSiteURL("/#faq")}">${escapeHTML(t("navFAQ"))}</a>
@@ -183,6 +184,7 @@ function siteFooter(): string {
         <nav aria-label="${escapeHTML(t("footerNav"))}">
           <a href="${appStoreURL()}" target="_blank" rel="noreferrer">App Store</a>
           <a href="https://github.com/zizicici/Watermelon" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="${mainSiteURL("/kb/")}">${escapeHTML(t("navGuides"))}</a>
           <a href="${mainSiteURL("/privacy.html")}">${escapeHTML(t("privacyPolicy"))}</a>
           <a href="${mainSiteURL("/support.html")}">${escapeHTML(t("navContact"))}</a>
         </nav>

@@ -35,3 +35,22 @@ test("Latin American Spanish browser locales select es-419 automatically", () =>
 test("every locale exposes the Link navigation shortcut", () => {
   for (const locale of locales) assert.equal(translator(locale)("navLink"), "Link", locale);
 });
+
+test("every locale matches the main site's Guides navigation label", () => {
+  const expected: Record<Locale, string> = {
+    en: "Guides",
+    "zh-Hans": "指南",
+    "zh-Hant": "指南",
+    ja: "ガイド",
+    ko: "가이드",
+    de: "Anleitungen",
+    fr: "Guides",
+    es: "Guías",
+    "es-419": "Guías",
+    "pt-BR": "Guias",
+    "pt-PT": "Guias",
+    ru: "Руководства",
+    uk: "Посібники",
+  };
+  for (const locale of locales) assert.equal(translator(locale)("navGuides"), expected[locale], locale);
+});

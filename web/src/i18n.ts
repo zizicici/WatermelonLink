@@ -3,7 +3,7 @@ export type Locale = "en" | "zh-Hans" | "zh-Hant" | "ja" | "ko" | "de" | "fr" | 
 const supportedLocales: readonly Locale[] = ["en", "zh-Hans", "zh-Hant", "ja", "ko", "de", "fr", "es", "es-419", "pt-BR", "pt-PT", "ru", "uk"];
 
 const en = {
-  brand: "Watermelon Backup", homepage: "Homepage", language: "Language", navOpen: "Open navigation", navLink: "Link", navPrivacy: "Privacy", navPricing: "Pricing", navFAQ: "FAQ", navSpecs: "Specifications", navContact: "Contact", privacyPolicy: "Privacy Policy", footerNav: "Footer navigation",
+  brand: "Watermelon Backup", homepage: "Homepage", language: "Language", navOpen: "Open navigation", navLink: "Link", navGuides: "Guides", navPrivacy: "Privacy", navPricing: "Pricing", navFAQ: "FAQ", navSpecs: "Specifications", navContact: "Contact", privacyPolicy: "Privacy Policy", footerNav: "Footer navigation",
   intro: "Choose a folder, scan once with your iPhone, and keep every original on your own computer.",
   panelTitle: "One-Time Connection over Your Local Network", panelIntro: "Watermelon Link works while this page and the Watermelon app stay open.", statusReady: "Ready", statusPreparing: "Preparing", statusWaiting: "Waiting", statusConnecting: "Connecting", statusDirect: "Direct", statusAction: "Action Needed",
   preflightTitle: "Check Browser", preflightCheck: "Start Check", preflightChecking: "Checking…", preflightReady: "Available", preflightRetry: "Try Again", localNetworkDenied: "Allow Local Network access for this site in your browser settings, then try again.", localNetworkUnavailable: "The browser WebRTC check failed. Reload this page and try again.",
@@ -16,7 +16,7 @@ export type MessageKey = keyof Messages;
 const pack = (overrides: Partial<Messages>): Messages => ({ ...en, ...overrides });
 
 const zhHans = pack({
-  brand: "西瓜备份", homepage: "官网", language: "语言", navOpen: "打开菜单", navPrivacy: "隐私", navPricing: "价格", navFAQ: "常见问题", navSpecs: "规格参数", navContact: "联系我们", privacyPolicy: "隐私政策", footerNav: "页脚导航",
+  brand: "西瓜备份", homepage: "官网", language: "语言", navOpen: "打开菜单", navGuides: "指南", navPrivacy: "隐私", navPricing: "价格", navFAQ: "常见问题", navSpecs: "规格参数", navContact: "联系我们", privacyPolicy: "隐私政策", footerNav: "页脚导航",
   intro: "选择一个文件夹，用 iPhone 扫描一次，原片就保存在你自己的电脑里。",
   panelTitle: "通过局域网建立一次性连接", panelIntro: "传输期间请保持此页面和西瓜备份 App 打开。", statusReady: "就绪", statusPreparing: "准备中", statusWaiting: "等待扫描", statusConnecting: "连接中", statusDirect: "已直连", statusAction: "需要处理",
   chooseTitle: "选择备份文件夹", chooseDetail: "网页只能访问你明确授权的文件夹。", choose: "选择", change: "更换", connectTitle: "创建安全连接", connectDetail: "请确保两台设备位于同一局域网；如果连接失败，请关闭 VPN。", singleWriterDetail: "同一文件夹一次只能用于一个 Link；备份期间请勿在电脑上修改。", connect: "创建", preparing: "正在创建安全连接…", waitingTitle: "使用 iPhone 扫描", waitingDetail: "使用系统相机，或在西瓜备份的「一次性连接」中扫描此二维码。", expires: "剩余", cancel: "取消", disconnect: "断开连接", connectingTitle: "正在建立直连…", connectingDetail: "两台设备正在协商局域网 WebRTC 连接。", connectedTitle: "可以开始备份", connectedDetail: "请保持此页面打开，然后在 iPhone 上选择照片并开始备份。",
@@ -24,7 +24,7 @@ const zhHans = pack({
 });
 
 const zhHant = pack({
-  brand: "西瓜備份", homepage: "官網", language: "語言", navOpen: "開啟選單", navPrivacy: "隱私", navPricing: "價格", navFAQ: "常見問題", navSpecs: "規格參數", navContact: "聯絡我們", privacyPolicy: "隱私權政策", footerNav: "頁尾導覽",
+  brand: "西瓜備份", homepage: "官網", language: "語言", navOpen: "開啟選單", navGuides: "指南", navPrivacy: "隱私", navPricing: "價格", navFAQ: "常見問題", navSpecs: "規格參數", navContact: "聯絡我們", privacyPolicy: "隱私權政策", footerNav: "頁尾導覽",
   intro: "選擇一個資料夾，用 iPhone 掃描一次，原始檔案就保存在你自己的電腦裡。",
   panelTitle: "透過區域網路建立一次性連線", panelIntro: "傳輸期間請保持此頁面和西瓜備份 App 開啟。", statusReady: "就緒", statusPreparing: "準備中", statusWaiting: "等待掃描", statusConnecting: "連線中", statusDirect: "已直連", statusAction: "需要處理",
   chooseTitle: "選擇備份資料夾", chooseDetail: "網頁只能存取你明確授權的資料夾。", choose: "選擇", change: "更換", connectTitle: "建立安全連線", connectDetail: "請確保兩台裝置位於同一區域網路；如果連線失敗，請關閉 VPN。", singleWriterDetail: "同一資料夾一次只能用於一個 Link；備份期間請勿在電腦上修改。", connect: "建立", preparing: "正在建立安全連線…", waitingTitle: "使用 iPhone 掃描", waitingDetail: "使用系統相機，或在西瓜備份的「一次性連線」中掃描此 QR Code。", expires: "剩餘", cancel: "取消", disconnect: "中斷連線", connectingTitle: "正在建立直連…", connectingDetail: "兩台裝置正在協商區域網路 WebRTC 連線。", connectedTitle: "可以開始備份", connectedDetail: "請保持此頁面開啟，然後在 iPhone 上選擇相片並開始備份。",
@@ -32,7 +32,7 @@ const zhHant = pack({
 });
 
 const ja = pack({
-  brand: "スイカバックアップ", homepage: "ホームページ", language: "言語", navOpen: "ナビゲーションを開く", navPrivacy: "プライバシー", navPricing: "価格", navFAQ: "FAQ", navSpecs: "仕様", navContact: "お問い合わせ", privacyPolicy: "プライバシーポリシー", footerNav: "フッターのナビゲーション",
+  brand: "スイカバックアップ", homepage: "ホームページ", language: "言語", navOpen: "ナビゲーションを開く", navGuides: "ガイド", navPrivacy: "プライバシー", navPricing: "価格", navFAQ: "FAQ", navSpecs: "仕様", navContact: "お問い合わせ", privacyPolicy: "プライバシーポリシー", footerNav: "フッターのナビゲーション",
   intro: "フォルダを選び、iPhoneで一度スキャンするだけ。オリジナルは自分のコンピュータに保存されます。",
   panelTitle: "ローカルネットワークで一回限りの接続", panelIntro: "転送中はこのページとスイカバックアップを開いたままにしてください。", statusReady: "準備完了", statusPreparing: "準備中", statusWaiting: "スキャン待ち", statusConnecting: "接続中", statusDirect: "直接接続", statusAction: "確認が必要",
   chooseTitle: "バックアップフォルダを選択", chooseDetail: "このページは許可したフォルダだけにアクセスできます。", choose: "選択", change: "変更", connectTitle: "安全なリンクを作成", connectDetail: "両方のデバイスを同じローカルネットワークに接続してください。接続できない場合はVPNをオフにしてください。", connect: "作成", preparing: "安全なリンクを準備中…", waitingTitle: "iPhoneでスキャン", waitingDetail: "カメラ、またはスイカバックアップの「一回限りの接続」からスキャンしてください。", expires: "有効期限", cancel: "キャンセル", disconnect: "接続を解除", connectingTitle: "直接接続中…", connectingDetail: "デバイス間でローカルWebRTC接続を確立しています。", connectedTitle: "バックアップを開始できます", connectedDetail: "このページを開いたまま、iPhoneで写真を選んでバックアップを開始してください。",
@@ -40,7 +40,7 @@ const ja = pack({
 });
 
 const ko = pack({
-  brand: "수박 백업", homepage: "홈페이지", language: "언어", navOpen: "내비게이션 열기", navPrivacy: "개인정보", navPricing: "가격", navFAQ: "FAQ", navSpecs: "사양", navContact: "문의하기", privacyPolicy: "개인정보 처리방침", footerNav: "푸터 내비게이션",
+  brand: "수박 백업", homepage: "홈페이지", language: "언어", navOpen: "내비게이션 열기", navGuides: "가이드", navPrivacy: "개인정보", navPricing: "가격", navFAQ: "FAQ", navSpecs: "사양", navContact: "문의하기", privacyPolicy: "개인정보 처리방침", footerNav: "푸터 내비게이션",
   intro: "폴더를 선택하고 iPhone으로 한 번 스캔하면 원본이 내 컴퓨터에 저장됩니다.",
   panelTitle: "로컬 네트워크에서 일회용 연결", panelIntro: "전송 중에는 이 페이지와 수박 백업 앱을 열어 두세요.", statusReady: "준비됨", statusPreparing: "준비 중", statusWaiting: "스캔 대기", statusConnecting: "연결 중", statusDirect: "직접 연결", statusAction: "확인 필요",
   chooseTitle: "백업 폴더 선택", chooseDetail: "이 페이지는 사용자가 허용한 폴더에만 접근할 수 있습니다.", choose: "선택", change: "변경", connectTitle: "보안 링크 만들기", connectDetail: "두 기기를 같은 로컬 네트워크에 연결하세요. 연결되지 않으면 VPN을 끄세요.", connect: "만들기", preparing: "보안 링크 준비 중…", waitingTitle: "iPhone으로 스캔", waitingDetail: "카메라 또는 수박 백업의 일회성 연결에서 스캔하세요.", expires: "남은 시간", cancel: "취소", disconnect: "연결 해제", connectingTitle: "직접 연결 중…", connectingDetail: "두 기기가 로컬 WebRTC 연결을 협상하고 있습니다.", connectedTitle: "백업 준비 완료", connectedDetail: "이 페이지를 열어 둔 채 iPhone에서 사진을 선택하고 백업을 시작하세요.",
@@ -48,7 +48,7 @@ const ko = pack({
 });
 
 const de = pack({
-  brand: "Melon Backup", homepage: "Startseite", language: "Sprache", navOpen: "Navigation öffnen", navPrivacy: "Datenschutz", navPricing: "Preise", navFAQ: "FAQ", navSpecs: "Technische Daten", navContact: "Kontakt", privacyPolicy: "Datenschutzerklärung", footerNav: "Navigation im Footer",
+  brand: "Melon Backup", homepage: "Startseite", language: "Sprache", navOpen: "Navigation öffnen", navGuides: "Anleitungen", navPrivacy: "Datenschutz", navPricing: "Preise", navFAQ: "FAQ", navSpecs: "Technische Daten", navContact: "Kontakt", privacyPolicy: "Datenschutzerklärung", footerNav: "Navigation im Footer",
   intro: "Wählen Sie einen Ordner, scannen Sie einmal mit dem iPhone und speichern Sie jedes Original auf Ihrem eigenen Computer.",
   panelTitle: "Einmalige Verbindung im lokalen Netzwerk", panelIntro: "Lassen Sie diese Seite und Melon Backup während der Übertragung geöffnet.", statusReady: "Bereit", statusPreparing: "Vorbereitung", statusWaiting: "Warten", statusConnecting: "Verbinden", statusDirect: "Direkt", statusAction: "Aktion erforderlich",
   chooseTitle: "Sicherungsordner auswählen", chooseDetail: "Die Seite kann nur auf den von Ihnen freigegebenen Ordner zugreifen.", choose: "Auswählen", change: "Ändern", connectTitle: "Sichere Verbindung erstellen", connectDetail: "Verbinden Sie beide Geräte mit demselben lokalen Netzwerk. Deaktivieren Sie VPN, falls die Verbindung fehlschlägt.", connect: "Erstellen", preparing: "Sichere Verbindung wird vorbereitet…", waitingTitle: "Mit dem iPhone scannen", waitingDetail: "Scannen Sie mit der Kamera oder über „Einmalige Verbindung“ in Melon Backup.", expires: "Läuft ab in", cancel: "Abbrechen", disconnect: "Verbindung trennen", connectingTitle: "Direkte Verbindung wird hergestellt…", connectingDetail: "Ihre Geräte handeln eine lokale WebRTC-Verbindung aus.", connectedTitle: "Bereit zum Sichern", connectedDetail: "Lassen Sie diese Seite geöffnet, wählen Sie dann auf Ihrem iPhone Fotos aus und starten Sie die Sicherung.",
@@ -56,7 +56,7 @@ const de = pack({
 });
 
 const fr = pack({
-  brand: "Melon Backup", homepage: "Accueil", language: "Langue", navOpen: "Ouvrir la navigation", navPrivacy: "Confidentialité", navPricing: "Tarifs", navFAQ: "FAQ", navSpecs: "Spécifications", navContact: "Contact", privacyPolicy: "Politique de confidentialité", footerNav: "Navigation du pied de page",
+  brand: "Melon Backup", homepage: "Accueil", language: "Langue", navOpen: "Ouvrir la navigation", navGuides: "Guides", navPrivacy: "Confidentialité", navPricing: "Tarifs", navFAQ: "FAQ", navSpecs: "Spécifications", navContact: "Contact", privacyPolicy: "Politique de confidentialité", footerNav: "Navigation du pied de page",
   intro: "Choisissez un dossier, scannez une fois avec votre iPhone et conservez chaque original sur votre ordinateur.",
   panelTitle: "Connexion unique sur votre réseau local", panelIntro: "Gardez cette page et Melon Backup ouverts pendant le transfert.", statusReady: "Prêt", statusPreparing: "Préparation", statusWaiting: "En attente", statusConnecting: "Connexion", statusDirect: "Direct", statusAction: "Action requise",
   chooseTitle: "Choisir un dossier de sauvegarde", chooseDetail: "La page ne peut accéder qu’au dossier que vous autorisez.", choose: "Choisir", change: "Modifier", connectTitle: "Créer un lien sécurisé", connectDetail: "Connectez les deux appareils au même réseau local. Désactivez le VPN si la connexion échoue.", connect: "Créer", preparing: "Préparation du lien sécurisé…", waitingTitle: "Scanner avec votre iPhone", waitingDetail: "Scannez avec l’appareil photo ou depuis Connexion à usage unique dans Melon Backup.", expires: "Expire dans", cancel: "Annuler", disconnect: "Déconnecter", connectingTitle: "Connexion directe…", connectingDetail: "Vos appareils négocient une connexion WebRTC locale.", connectedTitle: "Prêt pour la sauvegarde", connectedDetail: "Gardez cette page ouverte, puis choisissez des photos sur votre iPhone et lancez la sauvegarde.",
@@ -64,7 +64,7 @@ const fr = pack({
 });
 
 const es = pack({
-  brand: "Backup Sandía", homepage: "Inicio", language: "Idioma", navOpen: "Abrir navegación", navPrivacy: "Privacidad", navPricing: "Precio", navFAQ: "Preguntas frecuentes", navSpecs: "Especificaciones", navContact: "Contacto", privacyPolicy: "Política de privacidad", footerNav: "Navegación del pie de página",
+  brand: "Backup Sandía", homepage: "Inicio", language: "Idioma", navOpen: "Abrir navegación", navGuides: "Guías", navPrivacy: "Privacidad", navPricing: "Precio", navFAQ: "Preguntas frecuentes", navSpecs: "Especificaciones", navContact: "Contacto", privacyPolicy: "Política de privacidad", footerNav: "Navegación del pie de página",
   intro: "Elige una carpeta, escanea una vez con el iPhone y conserva cada original en tu propio ordenador.",
   panelTitle: "Conexión única en tu red local", panelIntro: "Mantén esta página y Backup Sandía abiertos durante la transferencia.", statusReady: "Listo", statusPreparing: "Preparando", statusWaiting: "Esperando", statusConnecting: "Conectando", statusDirect: "Directa", statusAction: "Requiere atención",
   chooseTitle: "Elige una carpeta de copia", chooseDetail: "La página solo puede acceder a la carpeta que autorices.", choose: "Elegir", change: "Cambiar", connectTitle: "Crear un enlace seguro", connectDetail: "Conecta ambos dispositivos a la misma red local. Desactiva la VPN si falla la conexión.", connect: "Crear", preparing: "Preparando el enlace seguro…", waitingTitle: "Escanea con tu iPhone", waitingDetail: "Escanea con la cámara o desde Conexión de un solo uso en Backup Sandía.", expires: "Caduca en", cancel: "Cancelar", disconnect: "Desconectar", connectingTitle: "Conectando directamente…", connectingDetail: "Tus dispositivos están negociando una conexión WebRTC local.", connectedTitle: "Listo para hacer la copia", connectedDetail: "Mantén esta página abierta, elige fotos en el iPhone e inicia la copia.",
@@ -72,7 +72,7 @@ const es = pack({
 });
 
 const ptBR = pack({
-  brand: "Backup Melancia", homepage: "Início", language: "Idioma", navOpen: "Abrir navegação", navPrivacy: "Privacidade", navPricing: "Preço", navFAQ: "Perguntas frequentes", navSpecs: "Especificações", navContact: "Contato", privacyPolicy: "Política de privacidade", footerNav: "Navegação do rodapé",
+  brand: "Backup Melancia", homepage: "Início", language: "Idioma", navOpen: "Abrir navegação", navGuides: "Guias", navPrivacy: "Privacidade", navPricing: "Preço", navFAQ: "Perguntas frequentes", navSpecs: "Especificações", navContact: "Contato", privacyPolicy: "Política de privacidade", footerNav: "Navegação do rodapé",
   intro: "Escolha uma pasta, escaneie uma vez com o iPhone e mantenha cada original no seu próprio computador.",
   panelTitle: "Conexão única pela rede local", panelIntro: "Mantenha esta página e o Backup Melancia abertos durante a transferência.", statusReady: "Pronto", statusPreparing: "Preparando", statusWaiting: "Aguardando", statusConnecting: "Conectando", statusDirect: "Direta", statusAction: "Ação necessária",
   chooseTitle: "Escolha uma pasta de backup", chooseDetail: "A página só pode acessar a pasta que você autorizar.", choose: "Escolher", change: "Alterar", connectTitle: "Criar uma conexão segura", connectDetail: "Conecte os dois dispositivos à mesma rede local. Desative a VPN se a conexão falhar.", connect: "Criar", preparing: "Preparando conexão segura…", waitingTitle: "Escaneie com o iPhone", waitingDetail: "Escaneie com a câmera ou pela Conexão de uso único no Backup Melancia.", expires: "Expira em", cancel: "Cancelar", disconnect: "Desconectar", connectingTitle: "Conectando diretamente…", connectingDetail: "Seus dispositivos estão negociando uma conexão WebRTC local.", connectedTitle: "Pronto para fazer backup", connectedDetail: "Mantenha esta página aberta, selecione fotos no iPhone e inicie o backup.",
@@ -80,7 +80,7 @@ const ptBR = pack({
 });
 
 const ru = pack({
-  brand: "Арбуз Backup", homepage: "Главная", language: "Язык", navOpen: "Открыть меню", navPrivacy: "Конфиденциальность", navPricing: "Цена", navFAQ: "Вопросы и ответы", navSpecs: "Параметры", navContact: "Контакты", privacyPolicy: "Политика конфиденциальности", footerNav: "Навигация внизу страницы",
+  brand: "Арбуз Backup", homepage: "Главная", language: "Язык", navOpen: "Открыть меню", navGuides: "Руководства", navPrivacy: "Конфиденциальность", navPricing: "Цена", navFAQ: "Вопросы и ответы", navSpecs: "Параметры", navContact: "Контакты", privacyPolicy: "Политика конфиденциальности", footerNav: "Навигация внизу страницы",
   intro: "Выберите папку, один раз отсканируйте код с iPhone и храните все оригиналы на своём компьютере.",
   panelTitle: "Одноразовое подключение по локальной сети", panelIntro: "Во время передачи оставьте эту страницу и Арбуз Backup открытыми.", statusReady: "Готово", statusPreparing: "Подготовка", statusWaiting: "Ожидание", statusConnecting: "Подключение", statusDirect: "Напрямую", statusAction: "Требуется действие",
   chooseTitle: "Выберите папку для копии", chooseDetail: "Страница получит доступ только к разрешённой вами папке.", choose: "Выбрать", change: "Сменить", connectTitle: "Создайте защищённую ссылку", connectDetail: "Подключите оба устройства к одной локальной сети. Отключите VPN, если подключение не удаётся.", connect: "Создать", preparing: "Подготовка защищённой ссылки…", waitingTitle: "Сканируйте с помощью iPhone", waitingDetail: "Используйте камеру или раздел «Одноразовое подключение» в приложении Арбуз Backup.", expires: "Истекает через", cancel: "Отмена", disconnect: "Отключиться", connectingTitle: "Прямое подключение…", connectingDetail: "Устройства согласовывают локальное WebRTC-подключение.", connectedTitle: "Готово к резервному копированию", connectedDetail: "Не закрывайте эту страницу, затем выберите фотографии на iPhone и запустите резервное копирование.",
@@ -88,7 +88,7 @@ const ru = pack({
 });
 
 const uk = pack({
-  brand: "Кавун Backup", homepage: "Головна", language: "Мова", navOpen: "Відкрити меню", navPrivacy: "Конфіденційність", navPricing: "Ціна", navFAQ: "Запитання й відповіді", navSpecs: "Параметри", navContact: "Контакти", privacyPolicy: "Політика конфіденційності", footerNav: "Навігація внизу сторінки",
+  brand: "Кавун Backup", homepage: "Головна", language: "Мова", navOpen: "Відкрити меню", navGuides: "Посібники", navPrivacy: "Конфіденційність", navPricing: "Ціна", navFAQ: "Запитання й відповіді", navSpecs: "Параметри", navContact: "Контакти", privacyPolicy: "Політика конфіденційності", footerNav: "Навігація внизу сторінки",
   intro: "Виберіть папку, один раз відскануйте код з iPhone і зберігайте всі оригінали на власному комп’ютері.",
   panelTitle: "Одноразове з’єднання локальною мережею", panelIntro: "Під час передавання залиште цю сторінку й Кавун Backup відкритими.", statusReady: "Готово", statusPreparing: "Підготовка", statusWaiting: "Очікування", statusConnecting: "Підключення", statusDirect: "Напряму", statusAction: "Потрібна дія",
   chooseTitle: "Виберіть папку для копії", chooseDetail: "Сторінка матиме доступ лише до дозволеної вами папки.", choose: "Вибрати", change: "Змінити", connectTitle: "Створіть захищене посилання", connectDetail: "Підключіть обидва пристрої до однієї локальної мережі. Вимкніть VPN, якщо з’єднання не вдається.", connect: "Створити", preparing: "Підготовка захищеного посилання…", waitingTitle: "Скануйте за допомогою iPhone", waitingDetail: "Скористайтеся камерою або розділом «Одноразове підключення» у застосунку Кавун Backup.", expires: "Залишилося", cancel: "Скасувати", disconnect: "Від’єднатися", connectingTitle: "Пряме підключення…", connectingDetail: "Пристрої узгоджують локальне WebRTC-з’єднання.", connectedTitle: "Готово до резервного копіювання", connectedDetail: "Не закривайте цю сторінку, потім виберіть фотографії на iPhone і почніть резервне копіювання.",
