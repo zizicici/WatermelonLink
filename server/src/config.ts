@@ -123,6 +123,6 @@ export function loadConfig(): LinkConfig {
     turnstileExpectedHostname: process.env.TURNSTILE_EXPECTED_HOSTNAME ?? (production ? "link.watermelonbackup.com" : null),
     staticRoot: resolve(process.cwd(), process.env.STATIC_ROOT ?? "dist/web"),
     usageMetricsPath: process.env.USAGE_METRICS_PATH?.trim() || null,
-    usageMetricsRetentionDays: integer("USAGE_METRICS_RETENTION_DAYS", 400, 1, 400)
+    usageMetricsRetentionDays: integer("USAGE_METRICS_RETENTION_DAYS", 100, 1, 100)
   };
 }

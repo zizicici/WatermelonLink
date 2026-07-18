@@ -39,15 +39,15 @@ test("deployment config fixes ticket TTL and preserves HTTP connection headroom"
     assert.equal(defaults.websocketUpgradesPerMinute, 60);
     assert.equal(defaults.websocketRawUpgradesGlobalPerMinute, 12_000);
     assert.equal(defaults.usageMetricsPath, null);
-    assert.equal(defaults.usageMetricsRetentionDays, 400);
+    assert.equal(defaults.usageMetricsRetentionDays, 100);
 
     process.env.USAGE_METRICS_PATH = " /var/lib/watermelon-link/usage.json ";
-    process.env.USAGE_METRICS_RETENTION_DAYS = "365";
+    process.env.USAGE_METRICS_RETENTION_DAYS = "100";
     assert.equal(loadConfig().usageMetricsPath, "/var/lib/watermelon-link/usage.json");
-    assert.equal(loadConfig().usageMetricsRetentionDays, 365);
-    process.env.USAGE_METRICS_RETENTION_DAYS = "401";
+    assert.equal(loadConfig().usageMetricsRetentionDays, 100);
+    process.env.USAGE_METRICS_RETENTION_DAYS = "101";
     assert.throws(() => loadConfig(), /USAGE_METRICS_RETENTION_DAYS/);
-    process.env.USAGE_METRICS_RETENTION_DAYS = "365";
+    process.env.USAGE_METRICS_RETENTION_DAYS = "100";
 
     process.env.WEBSOCKET_UPGRADES_PER_MINUTE = "60";
     process.env.WEBSOCKET_RAW_UPGRADES_GLOBAL_PER_MINUTE = "238";

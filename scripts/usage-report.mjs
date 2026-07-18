@@ -6,13 +6,13 @@ const values = args.filter((value) => value !== "--json");
 const firstIsDays = values[0] !== undefined && /^\d+$/.test(values[0]);
 const path = firstIsDays ? "/var/lib/watermelon-link/usage.json" : values[0] ?? "/var/lib/watermelon-link/usage.json";
 const requestedDays = Number(firstIsDays ? values[0] : values[1] ?? 30);
-if (!Number.isInteger(requestedDays) || requestedDays < 1 || requestedDays > 3_650) {
-  throw new Error("days must be an integer between 1 and 3650");
+if (!Number.isInteger(requestedDays) || requestedDays < 1 || requestedDays > 100) {
+  throw new Error("days must be an integer between 1 and 100");
 }
 
-let state;
+let stored;
 try {
-  state = JSON.parse(await readFile(path, "utf8"));
+  stored = JSON.parse(await readFile(path, "utf8"));
 } catch (error) {
   if (error?.code === "ENOENT") {
     console.log("No Watermelon Link usage has been recorded yet.");
@@ -21,55 +21,99 @@ try {
   throw error;
 }
 
-if (state?.version !== 1 || !state.days || typeof state.days !== "object") {
+if ((stored?.version !== 1 && stored?.version !== 2) || !stored.days || typeof stored.days !== "object" ||
+    (stored.version === 2 && (!stored.hours || typeof stored.hours !== "object"))) {
   throw new Error("unsupported usage metrics file");
 }
 
-const cutoff = new Date(Date.now() - (requestedDays - 1) * 86_400_000).toISOString().slice(0, 10);
-const days = Object.entries(state.days)
-  .filter(([day]) => day >= cutoff)
-  .sort(([left], [right]) => left.localeCompare(right));
+const dayCutoff = new Date(Date.now() - (requestedDays - 1) * 86_400_000).toISOString().slice(0, 10);
+const hourCutoff = `${dayCutoff}T00`;
+const days = sortedEntries(stored.days, dayCutoff);
+const hours = sortedEntries(stored.version === 2 ? stored.hours : {}, hourCutoff);
+const lifetime = stored.version === 2 && stored.lifetime
+  ? stored.lifetime
+  : totalsFor(Object.entries(stored.days));
 
 if (json) {
-  console.log(JSON.stringify({ version: 1, days: Object.fromEntries(days.map(([day, usage]) => [day, {
-    generatedLinks: publicBreakdown(usage.generatedLinks),
-    successfulConnections: publicBreakdown(usage.successfulConnections)
-  }])) }, null, 2));
+  console.log(JSON.stringify({
+    version: 2,
+    lifetime: publicTotals(lifetime),
+    hours: publicPeriods(hours),
+    days: publicPeriods(days)
+  }, null, 2));
   process.exit(0);
 }
 
-const totals = {
-  generatedLinks: { total: 0, browsers: {}, operatingSystems: {}, uniqueNetworks: 0, uniqueNetworksCapped: false },
-  successfulConnections: { total: 0, browsers: {}, operatingSystems: {}, uniqueNetworks: 0, uniqueNetworksCapped: false }
-};
-for (const [, usage] of days) {
-  mergeBreakdown(totals.generatedLinks, usage.generatedLinks);
-  mergeBreakdown(totals.successfulConnections, usage.successfulConnections);
-}
+const totals = totalsFor(days);
 
 console.log(`Watermelon Link usage — last ${requestedDays} UTC days`);
+console.log("");
+console.log("Hourly activity");
+if (hours.length === 0) {
+  console.log("No hourly detail in this period.");
+} else {
+  printPeriods("Hour (UTC)        Generated  Gen unique  Connected  Conn unique", hours, (hour) => `${hour}:00`, 16);
+}
+console.log("");
+console.log("Daily totals");
 if (days.length === 0) {
   console.log("No usage in this period.");
-  process.exit(0);
+} else {
+  printPeriods("Date (UTC)  Generated  Gen unique  Connected  Conn unique", days, (day) => day, 10);
 }
 console.log("");
-console.log("Date (UTC)  Generated  Gen unique  Connected  Conn unique");
-for (const [day, usage] of days) {
-  console.log(
-    `${day}  ${String(usage.generatedLinks.total).padStart(9)}  ` +
-    `${formatUnique(usage.generatedLinks).padStart(10)}  ${String(usage.successfulConnections.total).padStart(9)}  ` +
-    `${formatUnique(usage.successfulConnections).padStart(11)}`
-  );
-}
+console.log(`Window generated: ${totals.generatedLinks.total}`);
+console.log(`Window connected: ${totals.successfulConnections.total}`);
+console.log(`Window daily unique generated networks: ${formatUnique(totals.generatedLinks)}`);
+console.log(`Window daily unique connected networks: ${formatUnique(totals.successfulConnections)}`);
 console.log("");
-console.log(`Generated: ${totals.generatedLinks.total}`);
-console.log(`Connected: ${totals.successfulConnections.total}`);
-console.log(`Daily unique generated networks: ${formatUnique(totals.generatedLinks)}`);
-console.log(`Daily unique connected networks: ${formatUnique(totals.successfulConnections)}`);
-console.log(`Generated browsers: ${formatCounts(totals.generatedLinks.browsers)}`);
-console.log(`Generated systems: ${formatCounts(totals.generatedLinks.operatingSystems)}`);
-console.log(`Connected browsers: ${formatCounts(totals.successfulConnections.browsers)}`);
-console.log(`Connected systems: ${formatCounts(totals.successfulConnections.operatingSystems)}`);
+console.log("All-time totals");
+console.log(`Generated: ${lifetime.generatedLinks.total}`);
+console.log(`Connected: ${lifetime.successfulConnections.total}`);
+console.log(`Generated browsers: ${formatCounts(lifetime.generatedLinks.browsers)}`);
+console.log(`Generated systems: ${formatCounts(lifetime.generatedLinks.operatingSystems)}`);
+console.log(`Connected browsers: ${formatCounts(lifetime.successfulConnections.browsers)}`);
+console.log(`Connected systems: ${formatCounts(lifetime.successfulConnections.operatingSystems)}`);
+
+function sortedEntries(periods, cutoff) {
+  return Object.entries(periods)
+    .filter(([period]) => period >= cutoff)
+    .sort(([left], [right]) => left.localeCompare(right));
+}
+
+function publicPeriods(periods) {
+  return Object.fromEntries(periods.map(([period, usage]) => [period, {
+    generatedLinks: publicBreakdown(usage.generatedLinks),
+    successfulConnections: publicBreakdown(usage.successfulConnections)
+  }]));
+}
+
+function printPeriods(header, periods, label, labelWidth) {
+  console.log(header);
+  for (const [period, usage] of periods) {
+    console.log(
+      `${label(period).padEnd(labelWidth)}  ${String(usage.generatedLinks.total).padStart(9)}  ` +
+      `${formatUnique(usage.generatedLinks).padStart(10)}  ${String(usage.successfulConnections.total).padStart(9)}  ` +
+      `${formatUnique(usage.successfulConnections).padStart(11)}`
+    );
+  }
+}
+
+function emptyPublicBreakdown() {
+  return { total: 0, browsers: {}, operatingSystems: {}, uniqueNetworks: 0, uniqueNetworksCapped: false };
+}
+
+function totalsFor(periods) {
+  const totals = {
+    generatedLinks: emptyPublicBreakdown(),
+    successfulConnections: emptyPublicBreakdown()
+  };
+  for (const [, usage] of periods) {
+    mergeBreakdown(totals.generatedLinks, usage.generatedLinks);
+    mergeBreakdown(totals.successfulConnections, usage.successfulConnections);
+  }
+  return totals;
+}
 
 function mergeBreakdown(target, source) {
   target.total += source.total;
@@ -84,6 +128,21 @@ function publicBreakdown(value) {
     total: value.total,
     uniqueNetworks: value.uniqueNetworks,
     uniqueNetworksCapped: value.uniqueNetworksCapped,
+    browsers: value.browsers,
+    operatingSystems: value.operatingSystems
+  };
+}
+
+function publicTotals(value) {
+  return {
+    generatedLinks: publicTotalsBreakdown(value.generatedLinks),
+    successfulConnections: publicTotalsBreakdown(value.successfulConnections)
+  };
+}
+
+function publicTotalsBreakdown(value) {
+  return {
+    total: value.total,
     browsers: value.browsers,
     operatingSystems: value.operatingSystems
   };

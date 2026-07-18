@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { UsageMetrics } from "../src/usage-metrics.js";
 
-test("usage metrics persist bounded daily aggregates without client identifiers", async (context) => {
+test("usage metrics persist bounded hourly and daily aggregates without client identifiers", async (context) => {
   const directory = await mkdtemp(join(tmpdir(), "watermelon-link-usage-"));
   const path = join(directory, "usage.json");
   context.after(() => rm(directory, { recursive: true, force: true }));
@@ -18,8 +18,14 @@ test("usage metrics persist bounded daily aggregates without client identifiers"
   await metrics.close();
 
   const day = new Date(now).toISOString().slice(0, 10);
+  const hour = new Date(now).toISOString().slice(0, 13);
   const snapshot = metrics.snapshot();
+  assert.equal(snapshot.version, 2);
+  assert.equal(snapshot.lifetime.generatedLinks.total, 3);
+  assert.equal(snapshot.lifetime.successfulConnections.total, 1);
+  assert.deepEqual(snapshot.lifetime.generatedLinks.browsers, { Edge: 1, Chrome: 2 });
   assert.deepEqual(Object.keys(snapshot.days), [day]);
+  assert.deepEqual(Object.keys(snapshot.hours), [hour]);
   assert.deepEqual(snapshot.days[day]?.generatedLinks, {
     total: 2,
     browsers: { Chrome: 2 },
@@ -37,6 +43,7 @@ test("usage metrics persist bounded daily aggregates without client identifiers"
     uniqueNetworksCapped: false,
     networkHashes: [snapshot.days[day]!.successfulConnections.networkHashes[0]]
   });
+  assert.deepEqual(snapshot.hours[hour], snapshot.days[day]);
   const persisted = await readFile(path, "utf8");
   assert.equal(persisted.includes("user-agent"), false);
   assert.equal(persisted.includes("session"), false);
@@ -48,6 +55,63 @@ test("usage metrics persist bounded daily aggregates without client identifiers"
   assert.equal(reloaded.snapshot().days[day]?.generatedLinks.total, 3);
   assert.equal(reloaded.snapshot().days[day]?.generatedLinks.uniqueNetworks, 1);
   await reloaded.close();
+});
+
+test("usage metrics retain independent UTC-hour uniques while deduplicating the UTC day", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "watermelon-link-usage-hours-"));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const day = new Date().toISOString().slice(0, 10);
+  const firstHour = Date.parse(`${day}T12:05:00Z`);
+  const secondHour = firstHour + 3_600_000;
+  const metrics = new UsageMetrics(join(directory, "usage.json"), 100, "test-usage-hash-secret-with-32-chars");
+  const platform = { browser: "Chrome", operatingSystem: "macOS" } as const;
+
+  metrics.recordGeneratedLink(platform, "v4:203.0.113.1", firstHour);
+  metrics.recordGeneratedLink(platform, "v4:203.0.113.1", firstHour + 60_000);
+  metrics.recordGeneratedLink(platform, "v4:203.0.113.1", secondHour);
+
+  const snapshot = metrics.snapshot();
+  assert.equal(snapshot.days[day]?.generatedLinks.total, 3);
+  assert.equal(snapshot.days[day]?.generatedLinks.uniqueNetworks, 1);
+  assert.equal(snapshot.hours[`${day}T12`]?.generatedLinks.total, 2);
+  assert.equal(snapshot.hours[`${day}T12`]?.generatedLinks.uniqueNetworks, 1);
+  assert.deepEqual(snapshot.hours[`${day}T12`]?.generatedLinks.networkHashes, []);
+  assert.equal(snapshot.hours[`${day}T13`]?.generatedLinks.total, 1);
+  assert.equal(snapshot.hours[`${day}T13`]?.generatedLinks.uniqueNetworks, 1);
+  assert.equal(snapshot.lifetime.generatedLinks.total, 3);
+  await metrics.close();
+});
+
+test("usage metrics migrate version 1 daily data without inventing hourly history", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "watermelon-link-usage-migration-"));
+  const path = join(directory, "usage.json");
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const day = new Date().toISOString().slice(0, 10);
+  const breakdown = {
+    total: 1,
+    browsers: { Edge: 1 },
+    operatingSystems: { Windows: 1 },
+    uniqueNetworks: 1,
+    uniqueNetworksCapped: false,
+    networkHashes: ["A".repeat(22)]
+  };
+  await writeFile(path, JSON.stringify({
+    version: 1,
+    days: { [day]: { generatedLinks: breakdown, successfulConnections: breakdown } }
+  }));
+
+  const metrics = new UsageMetrics(path, 100, "test-usage-hash-secret-with-32-chars");
+  assert.equal(metrics.snapshot().version, 2);
+  assert.equal(metrics.snapshot().days[day]?.generatedLinks.total, 1);
+  assert.equal(metrics.snapshot().lifetime.generatedLinks.total, 1);
+  assert.equal(metrics.snapshot().lifetime.successfulConnections.total, 1);
+  assert.deepEqual(metrics.snapshot().hours, {});
+  await metrics.close();
+
+  const persisted = JSON.parse(await readFile(path, "utf8")) as { version: number; lifetime: object; hours: object };
+  assert.equal(persisted.version, 2);
+  assert.ok(persisted.lifetime);
+  assert.deepEqual(persisted.hours, {});
 });
 
 test("usage network HMAC values rotate by UTC day", async (context) => {
@@ -71,7 +135,7 @@ test("usage network HMAC values rotate by UTC day", async (context) => {
   await current.close();
 });
 
-test("usage metrics cap daily deduplication state without dropping event totals", async (context) => {
+test("usage metrics cap period deduplication state without dropping event totals", async (context) => {
   const directory = await mkdtemp(join(tmpdir(), "watermelon-link-usage-cap-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
   const metrics = new UsageMetrics(join(directory, "usage.json"), 3, "test-usage-hash-secret-with-32-chars");
@@ -84,6 +148,7 @@ test("usage metrics cap daily deduplication state without dropping event totals"
   assert.equal(generated?.uniqueNetworks, 10_000);
   assert.equal(generated?.networkHashes.length, 10_000);
   assert.equal(generated?.uniqueNetworksCapped, true);
+  assert.equal(metrics.snapshot().lifetime.generatedLinks.total, 10_005);
   await metrics.close();
 });
 

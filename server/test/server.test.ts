@@ -40,7 +40,7 @@ function testConfig(): LinkConfig {
     turnstileExpectedHostname: null,
     staticRoot: "/does-not-exist",
     usageMetricsPath: null,
-    usageMetricsRetentionDays: 400
+    usageMetricsRetentionDays: 100
   };
 }
 
@@ -162,11 +162,23 @@ test("usage metrics persist ticket issuance and completed signaling", async (con
   stopped = true;
 
   const state = JSON.parse(await readFile(path, "utf8")) as {
+    version: number;
+    lifetime: {
+      generatedLinks: { total: number };
+      successfulConnections: { total: number };
+    };
     days: Record<string, {
       generatedLinks: { total: number; uniqueNetworks: number; browsers: Record<string, number>; operatingSystems: Record<string, number> };
       successfulConnections: { total: number; uniqueNetworks: number; browsers: Record<string, number>; operatingSystems: Record<string, number> };
     }>;
+    hours: Record<string, {
+      generatedLinks: { total: number };
+      successfulConnections: { total: number };
+    }>;
   };
+  assert.equal(state.version, 2);
+  assert.equal(state.lifetime.generatedLinks.total, 1);
+  assert.equal(state.lifetime.successfulConnections.total, 1);
   const usage = Object.values(state.days)[0];
   assert.ok(usage);
   assert.equal(usage.generatedLinks.total, 1);
@@ -177,6 +189,9 @@ test("usage metrics persist ticket issuance and completed signaling", async (con
   assert.equal(usage.successfulConnections.uniqueNetworks, 1);
   assert.deepEqual(usage.successfulConnections.browsers, { Edge: 1 });
   assert.deepEqual(usage.successfulConnections.operatingSystems, { Windows: 1 });
+  const hourlyUsage = Object.values(state.hours)[0];
+  assert.equal(hourlyUsage?.generatedLinks.total, 1);
+  assert.equal(hourlyUsage?.successfulConnections.total, 1);
 });
 
 test("cross-site and non-JSON ticket requests do not consume the IP quota", async (context) => {
