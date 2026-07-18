@@ -48,30 +48,6 @@ test("usage report shows UTC hourly and daily uniques and hides internal hashes 
   assert.equal(output.days[day].generatedLinks.uniqueNetworks, 1);
 });
 
-test("usage report continues to read version 1 daily files", async (context) => {
-  const directory = await mkdtemp(join(tmpdir(), "watermelon-link-report-v1-"));
-  const path = join(directory, "usage.json");
-  context.after(() => rm(directory, { recursive: true, force: true }));
-  const day = new Date().toISOString().slice(0, 10);
-  const breakdown = {
-    total: 1,
-    browsers: { Chrome: 1 },
-    operatingSystems: { Windows: 1 },
-    uniqueNetworks: 1,
-    uniqueNetworksCapped: false,
-    networkHashes: ["A".repeat(22)]
-  };
-  await writeFile(path, JSON.stringify({
-    version: 1,
-    days: { [day]: { generatedLinks: breakdown, successfulConnections: breakdown } }
-  }));
-
-  const script = join(process.cwd(), "scripts", "usage-report.mjs");
-  const report = await run(process.execPath, [script, path, "30"]);
-  assert.match(report.stdout, /No hourly detail in this period/);
-  assert.match(report.stdout, new RegExp(`${day}\\s+1\\s+1\\s+1\\s+1`));
-});
-
 test("usage report shows all-time totals when the selected window is empty", async (context) => {
   const directory = await mkdtemp(join(tmpdir(), "watermelon-link-report-lifetime-"));
   const path = join(directory, "usage.json");

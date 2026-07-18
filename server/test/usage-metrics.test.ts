@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -82,38 +82,6 @@ test("usage metrics retain independent UTC-hour uniques while deduplicating the 
   await metrics.close();
 });
 
-test("usage metrics migrate version 1 daily data without inventing hourly history", async (context) => {
-  const directory = await mkdtemp(join(tmpdir(), "watermelon-link-usage-migration-"));
-  const path = join(directory, "usage.json");
-  context.after(() => rm(directory, { recursive: true, force: true }));
-  const day = new Date().toISOString().slice(0, 10);
-  const breakdown = {
-    total: 1,
-    browsers: { Edge: 1 },
-    operatingSystems: { Windows: 1 },
-    uniqueNetworks: 1,
-    uniqueNetworksCapped: false,
-    networkHashes: ["A".repeat(22)]
-  };
-  await writeFile(path, JSON.stringify({
-    version: 1,
-    days: { [day]: { generatedLinks: breakdown, successfulConnections: breakdown } }
-  }));
-
-  const metrics = new UsageMetrics(path, 100, "test-usage-hash-secret-with-32-chars");
-  assert.equal(metrics.snapshot().version, 2);
-  assert.equal(metrics.snapshot().days[day]?.generatedLinks.total, 1);
-  assert.equal(metrics.snapshot().lifetime.generatedLinks.total, 1);
-  assert.equal(metrics.snapshot().lifetime.successfulConnections.total, 1);
-  assert.deepEqual(metrics.snapshot().hours, {});
-  await metrics.close();
-
-  const persisted = JSON.parse(await readFile(path, "utf8")) as { version: number; lifetime: object; hours: object };
-  assert.equal(persisted.version, 2);
-  assert.ok(persisted.lifetime);
-  assert.deepEqual(persisted.hours, {});
-});
-
 test("usage network HMAC values rotate by UTC day", async (context) => {
   const directory = await mkdtemp(join(tmpdir(), "watermelon-link-usage-rotation-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
@@ -150,6 +118,36 @@ test("usage metrics cap period deduplication state without dropping event totals
   assert.equal(generated?.uniqueNetworksCapped, true);
   assert.equal(metrics.snapshot().lifetime.generatedLinks.total, 10_005);
   await metrics.close();
+});
+
+test("maximum retained hourly history remains within the metrics file budget", async () => {
+  const payloads: string[] = [];
+  const metrics = new UsageMetrics(
+    "/virtual/usage.json",
+    100,
+    "test-usage-hash-secret-with-32-chars",
+    async (_path, payload) => { payloads.push(payload); }
+  );
+  const browsers = ["Chrome", "Edge", "Firefox", "Safari", "Chromium", "Other", "Chrome"] as const;
+  const systems = ["Windows", "macOS", "iOS", "Android", "Linux", "ChromeOS", "Other"] as const;
+  const currentHour = Math.floor(Date.now() / 3_600_000) * 3_600_000;
+  for (let offset = 2_399; offset >= 1; offset -= 1) {
+    for (let category = 0; category < systems.length; category += 1) {
+      const platform = { browser: browsers[category]!, operatingSystem: systems[category]! };
+      const timestamp = currentHour - offset * 3_600_000;
+      metrics.recordGeneratedLink(platform, `generated-${offset}-${category}`, timestamp);
+      metrics.recordConnection(platform, `connected-${offset}-${category}`, timestamp);
+    }
+  }
+  for (let index = 0; index < 10_000; index += 1) {
+    const platform = { browser: browsers[index % browsers.length]!, operatingSystem: systems[index % systems.length]! };
+    metrics.recordGeneratedLink(platform, `generated-current-${index}`, currentHour);
+    metrics.recordConnection(platform, `connected-current-${index}`, currentHour);
+  }
+
+  await metrics.close();
+  assert.equal(payloads.length, 1);
+  assert.ok(Buffer.byteLength(payloads[0]!) < 10 * 1024 * 1024);
 });
 
 test("usage metrics write failures remain fail-open", async (context) => {

@@ -21,18 +21,16 @@ try {
   throw error;
 }
 
-if ((stored?.version !== 1 && stored?.version !== 2) || !stored.days || typeof stored.days !== "object" ||
-    (stored.version === 2 && (!stored.hours || typeof stored.hours !== "object"))) {
+if (stored?.version !== 2 || !stored.lifetime || typeof stored.lifetime !== "object" ||
+    !stored.days || typeof stored.days !== "object" || !stored.hours || typeof stored.hours !== "object") {
   throw new Error("unsupported usage metrics file");
 }
 
 const dayCutoff = new Date(Date.now() - (requestedDays - 1) * 86_400_000).toISOString().slice(0, 10);
 const hourCutoff = `${dayCutoff}T00`;
 const days = sortedEntries(stored.days, dayCutoff);
-const hours = sortedEntries(stored.version === 2 ? stored.hours : {}, hourCutoff);
-const lifetime = stored.version === 2 && stored.lifetime
-  ? stored.lifetime
-  : totalsFor(Object.entries(stored.days));
+const hours = sortedEntries(stored.hours, hourCutoff);
+const lifetime = stored.lifetime;
 
 if (json) {
   console.log(JSON.stringify({

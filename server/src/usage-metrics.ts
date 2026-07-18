@@ -38,7 +38,7 @@ export type UsageMetricsState = {
 
 type MetricsWriter = (path: string, payload: string) => Promise<void>;
 
-const maximumMetricsFileBytes = 2 * 1024 * 1024;
+const maximumMetricsFileBytes = 10 * 1024 * 1024;
 const maximumPeriodNetworkHashes = 10_000;
 const maximumRetainedDays = 100;
 const maximumRetainedHours = maximumRetainedDays * 24;
@@ -63,9 +63,9 @@ export class UsageMetrics {
     private readonly writer: MetricsWriter = writeMetrics
   ) {
     this.hashKey = createHmac("sha256", hashSecret).update("watermelon-link-usage-network-v1").digest();
-    const migrated = path ? this.load(path) : false;
+    if (path) this.load(path);
     const now = Date.now();
-    if (migrated || this.prune(now)) this.scheduleFlush();
+    if (this.prune(now)) this.scheduleFlush();
     this.lastPrunedHour = hourString(now);
   }
 
@@ -211,18 +211,15 @@ export class UsageMetrics {
     return sets;
   }
 
-  private load(path: string): boolean {
+  private load(path: string): void {
     try {
       if (statSync(path).size > maximumMetricsFileBytes) throw new Error("metrics_file_too_large");
       const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-      const validated = validateState(parsed);
-      this.state = validated.state;
-      return validated.migrated;
+      this.state = validateState(parsed);
     } catch (error: unknown) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         console.error("usage_metrics_load_failed", error instanceof Error ? error.name : typeof error);
       }
-      return false;
     }
   }
 
@@ -272,23 +269,14 @@ function hourString(timestamp: number): string {
   return new Date(timestamp).toISOString().slice(0, 13);
 }
 
-function validateState(value: unknown): { state: UsageMetricsState; migrated: boolean } {
+function validateState(value: unknown): UsageMetricsState {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid_metrics_state");
   const candidate = value as { version?: unknown; lifetime?: unknown; days?: unknown; hours?: unknown };
-  if (candidate.version !== 1 && candidate.version !== 2) {
-    throw new Error("invalid_metrics_state");
-  }
+  if (candidate.version !== 2) throw new Error("invalid_metrics_state");
   const days = validatePeriods(candidate.days, /^\d{4}-\d{2}-\d{2}$/, maximumRetainedDays);
-  const hours = candidate.version === 1
-    ? {}
-    : validatePeriods(candidate.hours, /^\d{4}-\d{2}-\d{2}T\d{2}$/, maximumRetainedHours);
-  const lifetime = candidate.version === 2 && candidate.lifetime !== undefined
-    ? validateTotals(candidate.lifetime)
-    : totalsFromPeriods(days);
-  return {
-    state: { version: 2, lifetime, days, hours },
-    migrated: candidate.version === 1 || candidate.lifetime === undefined
-  };
+  const hours = validatePeriods(candidate.hours, /^\d{4}-\d{2}-\d{2}T\d{2}$/, maximumRetainedHours);
+  const lifetime = validateTotals(candidate.lifetime);
+  return { version: 2, lifetime, days, hours };
 }
 
 function validatePeriods(value: unknown, keyPattern: RegExp, maximumEntries: number): Record<string, UsagePeriod> {
@@ -325,23 +313,6 @@ function updateTotals(totals: UsageTotalsBreakdown, platform: ClientPlatform): v
   totals.total += 1;
   increment(totals.browsers, platform.browser);
   increment(totals.operatingSystems, platform.operatingSystem);
-}
-
-function totalsFromPeriods(periods: Record<string, UsagePeriod>): UsageTotals {
-  const totals = emptyTotals();
-  for (const usage of Object.values(periods)) {
-    mergeTotals(totals.generatedLinks, usage.generatedLinks);
-    mergeTotals(totals.successfulConnections, usage.successfulConnections);
-  }
-  return totals;
-}
-
-function mergeTotals(target: UsageTotalsBreakdown, source: UsageTotalsBreakdown): void {
-  target.total += source.total;
-  for (const [key, count] of Object.entries(source.browsers)) target.browsers[key] = (target.browsers[key] ?? 0) + count;
-  for (const [key, count] of Object.entries(source.operatingSystems)) {
-    target.operatingSystems[key] = (target.operatingSystems[key] ?? 0) + count;
-  }
 }
 
 function validateTotals(value: unknown): UsageTotals {
